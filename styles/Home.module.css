@@ -5,52 +5,134 @@
   color: #222;
 }
 
+/* ── Header ─────────────────────────────── */
 .header {
   background: #1a1a2e;
   color: #fff;
-  padding: 28px 24px 20px;
+  padding: 26px 24px 18px;
   text-align: center;
 }
 
 .title {
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  margin: 0 0 6px;
+  margin: 0 0 5px;
   letter-spacing: -0.5px;
 }
 
 .subtitle {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: #aac4f5;
-  margin: 0 0 14px;
+  margin: 0 0 12px;
 }
 
 .resetBtn {
   background: transparent;
   border: 1px solid #4a6fa5;
   color: #aac4f5;
-  padding: 5px 14px;
+  padding: 4px 12px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   transition: background 0.15s;
 }
+.resetBtn:hover { background: #4a6fa5; color: #fff; }
 
-.resetBtn:hover {
-  background: #4a6fa5;
-  color: #fff;
-}
-
+/* ── Main layout ─────────────────────────── */
 .main {
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 20px 14px 48px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
-/* Section */
+/* ── Upload box ─────────────────────────── */
+.uploadBox {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  padding: 18px 20px;
+}
+
+.uploadTitle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: #333;
+}
+
+.uploadDesc {
+  font-size: 0.78rem;
+  color: #888;
+  margin: 0 0 14px;
+}
+
+.uploadRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.fileLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 220px;
+  background: #f7f8fc;
+  border: 1px dashed #c8d0e4;
+  border-radius: 7px;
+  padding: 8px 12px;
+  transition: border-color 0.15s;
+}
+.fileLabel:hover { border-color: #4a6fa5; }
+
+.prodTag {
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.fileInput {
+  display: none;
+}
+
+.fileName {
+  font-size: 0.8rem;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.applyBtn {
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  padding: 9px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.applyBtn:hover:not(:disabled) { background: #2c3e5e; }
+.applyBtn:disabled { opacity: 0.5; cursor: default; }
+
+.uploadMsg {
+  font-size: 0.82rem;
+  margin: 10px 0 0;
+  color: #444;
+}
+
+/* ── Section / Table ─────────────────────── */
 .section {
   background: #fff;
   border-radius: 10px;
@@ -59,93 +141,90 @@
 }
 
 .sectionTitle {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
-  padding: 14px 18px;
+  padding: 13px 18px;
   margin: 0;
   border-left: 5px solid #ccc;
   background: #fafafa;
   border-bottom: 1px solid #eee;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-/* Table */
-.tableWrap {
-  overflow-x: auto;
-}
+.tableWrap { overflow-x: auto; }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.87rem;
+  font-size: 0.86rem;
 }
 
 .table th {
   background: #f0f2f8;
-  padding: 10px 12px;
+  padding: 9px 10px;
   text-align: center;
   font-weight: 600;
   color: #444;
   border-bottom: 2px solid #dde3f0;
   white-space: nowrap;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .table td {
-  padding: 9px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid #f0f0f0;
   text-align: center;
   vertical-align: middle;
 }
 
-.table tbody tr:hover {
-  background: #fafbff;
-}
+.table tbody tr:hover { background: #fafbff; }
+.needOrder { background: #fffbf0 !important; }
 
-.needOrder {
-  background: #fffbf0 !important;
-}
-
-.sizeCell {
-  font-weight: 600;
-  color: #333;
-  text-align: left !important;
+/* size chip */
+.sizeChip {
+  display: inline-block;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 10px;
   white-space: nowrap;
 }
 
+/* 전산/금주 cell */
+.jeonsanCell {
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+.jeonsanVal { display: block; color: #555; }
+.deltaPos   { display: block; color: #2980b9; font-weight: 600; }
+.deltaNeg   { display: block; color: #e74c3c; font-weight: 600; }
+.noData     { color: #bbb; }
+
+.thSub { font-size: 0.72rem; font-weight: 400; color: #888; }
+
+/* stock input */
 .stockInput {
-  width: 70px;
-  padding: 5px 8px;
+  width: 68px;
+  padding: 5px 7px;
   border: 1px solid #d0d7e8;
   border-radius: 5px;
   text-align: center;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   transition: border-color 0.15s;
 }
-
 .stockInput:focus {
   outline: none;
   border-color: #4a6fa5;
   box-shadow: 0 0 0 2px rgba(74,111,165,0.15);
 }
 
-.num {
-  text-align: center;
-}
-
-.monthCell {
-  color: #666;
-  font-size: 0.82rem;
-  white-space: nowrap;
-}
-
-.small {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: #888;
-}
-
-.red { color: #e74c3c; font-weight: 600; }
-.green { color: #27ae60; }
+.num { text-align: center; }
+.monthCell { color: #666; font-size: 0.8rem; white-space: nowrap; }
+.small { font-size: 0.72rem; font-weight: 400; color: #999; }
+.red  { color: #e74c3c; font-weight: 600; }
+.greenTxt { color: #27ae60; }
 .bold { font-weight: 700; color: #1a1a2e; }
 
 /* Tfoot */
@@ -154,42 +233,46 @@
   font-weight: 600;
   color: #444;
   border-top: 2px solid #dde3f0;
-  border-bottom: 1px solid #dde3f0;
+  text-align: right;
+  padding-right: 14px;
 }
+.totalRow td:first-child { text-align: left; }
 
 .boxRow td {
   background: #eef1fb;
   font-weight: 700;
   color: #333;
   border-top: 1px solid #dde3f0;
+  text-align: right;
+  padding-right: 14px;
 }
+.boxRow td:first-child { text-align: left; }
 
 .boxBadge {
   display: inline-block;
   color: #fff;
   padding: 3px 12px;
   border-radius: 12px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 700;
 }
 
-/* Summary */
+/* ── Summary ─────────────────────────────── */
 .summary {
   border-radius: 10px;
-  padding: 20px 24px;
+  padding: 18px 22px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
-
-.summaryOk { background: #eafaf1; border: 1px solid #82e0aa; }
+.summaryOk   { background: #eafaf1; border: 1px solid #82e0aa; }
 .summaryWarn { background: #fff8e5; border: 1px solid #f0c040; }
 
 .summaryRow {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .summaryBlock {
@@ -199,59 +282,36 @@
   gap: 2px;
 }
 
-.summaryLabel {
-  font-size: 0.75rem;
-  color: #666;
-  font-weight: 500;
-}
-
-.summaryVal {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #1a1a2e;
-}
-
-.summaryTotal { font-size: 1.9rem; color: #e74c3c; }
-
-.summaryPlus {
-  font-size: 1.4rem;
-  color: #aaa;
-  font-weight: 300;
-}
+.summaryLabel { font-size: 0.72rem; color: #666; font-weight: 500; }
+.summaryVal   { font-size: 1.45rem; font-weight: 700; color: #1a1a2e; }
+.summaryTotal { font-size: 1.85rem; color: #e74c3c; }
+.summaryPlus  { font-size: 1.3rem; color: #bbb; }
 
 .summaryMsg {
   text-align: center;
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   color: #444;
 }
 
-/* Info box */
+/* ── Info box ─────────────────────────────── */
 .infoBox {
   background: #f0f2f8;
   border-radius: 8px;
-  padding: 14px 18px;
-  font-size: 0.82rem;
+  padding: 13px 17px;
+  font-size: 0.8rem;
   color: #555;
 }
+.infoBox strong { display: block; margin-bottom: 5px; color: #333; }
+.infoBox ul { margin: 0; padding-left: 17px; line-height: 1.85; }
 
-.infoBox strong {
-  display: block;
-  margin-bottom: 6px;
-  color: #333;
-}
-
-.infoBox ul {
-  margin: 0;
-  padding-left: 18px;
-  line-height: 1.8;
-}
-
+/* ── Mobile ──────────────────────────────── */
 @media (max-width: 600px) {
-  .title { font-size: 1.25rem; }
-  .table { font-size: 0.8rem; }
-  .table th, .table td { padding: 7px 8px; }
-  .stockInput { width: 58px; }
-  .summaryVal { font-size: 1.2rem; }
-  .summaryTotal { font-size: 1.5rem; }
+  .title { font-size: 1.2rem; }
+  .table { font-size: 0.78rem; }
+  .table th, .table td { padding: 6px 7px; }
+  .stockInput { width: 54px; font-size: 0.8rem; }
+  .summaryVal   { font-size: 1.1rem; }
+  .summaryTotal { font-size: 1.4rem; }
+  .uploadRow { flex-direction: column; }
 }
