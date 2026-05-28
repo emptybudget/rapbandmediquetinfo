@@ -1,12 +1,13 @@
 import Head from 'next/head';
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { USAGE_DATA, SIZE_COLORS, SIZE_LABELS, GEUMJU_DELTA } from '../lib/usageData';
+import { useState, useCallback, useEffect } from 'react';
+import { USAGE_DATA, SIZE_COLORS, SIZE_LABELS, DEFAULT_OCHA } from '../lib/usageData';
 import styles from '../styles/Home.module.css';
 
 const PACK_SIZE = 30;
 const FREE_SHIP_BOXES = 6;
 const LS_KEY = 'bandOrderStocks';
 const SIZES = ['M1', 'M2', 'L', 'XL'];
+const PRODUCTS = ['mediquet', 'rapband'];
 
 function calcOrder(avgMonthly, currentStock) {
   const safetyStock = Math.ceil(avgMonthly);
@@ -18,7 +19,7 @@ function calcOrder(avgMonthly, currentStock) {
 
 function defaultStocks() {
   const out = {};
-  for (const key of ['mediquet', 'rapband']) {
+  for (const key of PRODUCTS) {
     out[key] = {};
     USAGE_DATA[key].forEach((item) => { out[key][item.size] = item.default_stock; });
   }
@@ -36,6 +37,13 @@ function defaultAdj() {
   return {
     mediquet: { M1: 0, M2: 0, L: 0, XL: 0 },
     rapband:  { M1: 0, M2: 0, L: 0, XL: 0 },
+  };
+}
+
+function defaultOcha() {
+  return {
+    mediquet: { ...DEFAULT_OCHA.mediquet },
+    rapband:  { ...DEFAULT_OCHA.rapband  },
   };
 }
 
@@ -83,7 +91,7 @@ function UploadSection({ onUpload }) {
       if (medFile) results.mediquet = await parseExcelStocks(medFile);
       if (rapFile) results.rapband  = await parseExcelStocks(rapFile);
       onUpload(results);
-      setMsg('✅ 재고 자동 업데이트 완료 (전산 + 금주 조정 적용)');
+      setMsg('✅ 재고 자동 업데이트 완료 (전산 + 오차 적용)');
     } catch (e) {
       setMsg('❌ 파일 읽기 오류: ' + e.message);
     }
@@ -93,7 +101,7 @@ function UploadSection({ onUpload }) {
   return (
     <div className={styles.uploadBox}>
       <h2 className={styles.uploadTitle}>엑셀 파일 업로드</h2>
-      <p className={styles.uploadDesc}>업로드하면 전산재고 + 금주 조정값으로 창고재고를 자동 계산합니다.</p>
+      <p className={styles.uploadDesc}>업로드하면 전산재고 + 오차값으로 창고재고를 자동 계산합니다.</p>
       <div className={styles.uploadRow}>
         {[
           { key: 'med', label: 'Mediquet', color: '#e74c3c', file: medFile, set: setMedFile },
@@ -115,18 +123,67 @@ function UploadSection({ onUpload }) {
   );
 }
 
-// ── Product Table ──────────────────────────────────────────
-function ProductTable({ title, color, items, stocks, jeonsan, adjustments, onStockChange, onAdjust, onResetAdj }) {
-  const geumjuDelta = GEUMJU_DELTA[title] ?? {};
+// ── Ocha (오차) Settings Panel ─────────────────────────────
+function OchaPanel({ ocha, onChange, onReset }) {
+  const [open, setOpen] = useState(false);
 
+  return (
+    <div className={styles.ochaBox}>
+      <button className={styles.ochaToggle} onClick={() => setOpen((v) => !v)}>
+        <span>⚙️ 오차 설정</span>
+        <span className={styles.ochaToggleHint}>
+          {open ? '접기 ▲' : '창고재고 − 전산재고 값 편집 ▼'}
+        </span>
+      </button>
+
+      {open && (
+        <div className={styles.ochaBody}>
+          <p className={styles.ochaDesc}>
+            오차 = 창고 실재고 − 전산 재고량. 엑셀 업로드 시 <strong>창고재고 = 전산 + 오차</strong>로 자동 계산됩니다.
+          </p>
+          <div className={styles.ochaGrid}>
+            {PRODUCTS.map((product) => (
+              <div key={product} className={styles.ochaProduct}>
+                <div className={styles.ochaProductLabel}
+                  style={{ borderColor: product === 'mediquet' ? '#e74c3c' : '#2980b9' }}>
+                  {product === 'mediquet' ? 'Mediquet' : 'Rapband'}
+                </div>
+                <div className={styles.ochaRow}>
+                  {SIZES.map((size) => (
+                    <div key={size} className={styles.ochaItem}>
+                      <SizeChip size={size} small />
+                      <input
+                        type="number"
+                        value={ocha[product][size]}
+                        onChange={(e) => onChange(product, size, Number(e.target.value))}
+                        className={styles.ochaInput}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button className={styles.ochaResetBtn} onClick={onReset}>
+            기본값으로 초기화
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Product Table ──────────────────────────────────────────
+function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments, onStockChange, onAdjust, onResetAdj }) {
   const rows = items.map((item) => {
     const stock = stocks[item.size] ?? item.default_stock;
     const { shortage, packs } = calcOrder(item.avg_monthly, stock);
-    const adjDelta = adjustments[item.size] || 0;
+    const adjDelta  = adjustments[item.size] || 0;
     const finalPacks = Math.max(0, packs + adjDelta);
-    const finalQty = finalPacks * PACK_SIZE;
-    const jsVal = jeonsan[item.size];
-    return { ...item, stock, shortage, basePacks: packs, finalPacks, finalQty, jeonsan: jsVal, geumju: geumjuDelta[item.size] ?? 0 };
+    const finalQty   = finalPacks * PACK_SIZE;
+    const jsVal      = jeonsan[item.size];
+    const ochaVal    = ocha[item.size] ?? 0;
+    return { ...item, stock, shortage, basePacks: packs, finalPacks, finalQty, jeonsan: jsVal, ocha: ochaVal };
   });
 
   const totalPacks = rows.reduce((s, r) => s + r.finalPacks, 0);
@@ -135,20 +192,20 @@ function ProductTable({ title, color, items, stocks, jeonsan, adjustments, onSto
   const isOdd      = totalPacks > 0 && totalPacks % 2 !== 0;
   const hasAdj     = SIZES.some((s) => (adjustments[s] || 0) !== 0);
 
-  // 홀수일 때 조정 후보 선택
-  const orderedRows = rows.filter((r) => r.finalPacks > 0);
-  const biggestRow   = orderedRows.length
+  const orderedRows   = rows.filter((r) => r.finalPacks > 0);
+  const biggestRow    = orderedRows.length
     ? orderedRows.reduce((a, b) => b.finalPacks > a.finalPacks ? b : a)
     : null;
-  // "애매한" = 발주는 하지만 부족량이 가장 적은 것 (가장 아슬아슬한 것)
   const borderlineRow = orderedRows.length
     ? orderedRows.reduce((a, b) => (a.shortage || 0) <= (b.shortage || 0) ? a : b)
     : null;
 
+  const displayTitle = title === 'mediquet' ? 'Mediquet' : 'Rapband';
+
   return (
     <div className={styles.section}>
       <h2 className={styles.sectionTitle} style={{ borderLeftColor: color }}>
-        {title.charAt(0).toUpperCase() + title.slice(1)}
+        {displayTitle}
       </h2>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -156,7 +213,7 @@ function ProductTable({ title, color, items, stocks, jeonsan, adjustments, onSto
             <tr>
               <th>사이즈</th>
               <th>창고재고</th>
-              <th><span className={styles.thSub}>전산 / 금주</span></th>
+              <th><span className={styles.thSub}>전산 / 오차</span></th>
               <th>월평균<br />사용량</th>
               <th>적정재고<br />(1배수)</th>
               <th>월별 사용량<br /><span className={styles.small}>3월 / 4월 / 5월</span></th>
@@ -168,7 +225,7 @@ function ProductTable({ title, color, items, stocks, jeonsan, adjustments, onSto
           </thead>
           <tbody>
             {rows.map((row) => {
-              const adjDelta = adjustments[row.size] || 0;
+              const adjDelta   = adjustments[row.size] || 0;
               const isAdjusted = adjDelta !== 0;
               return (
                 <tr key={row.size} className={row.finalPacks > 0 ? styles.needOrder : ''}>
@@ -184,8 +241,8 @@ function ProductTable({ title, color, items, stocks, jeonsan, adjustments, onSto
                     {row.jeonsan != null ? (
                       <>
                         <span className={styles.jeonsanVal}>{row.jeonsan}</span>
-                        <span className={row.geumju >= 0 ? styles.deltaPos : styles.deltaNeg}>
-                          {row.geumju >= 0 ? `+${row.geumju}` : row.geumju}
+                        <span className={row.ocha >= 0 ? styles.deltaPos : styles.deltaNeg}>
+                          {row.ocha >= 0 ? `+${row.ocha}` : row.ocha}
                         </span>
                       </>
                     ) : <span className={styles.noData}>—</span>}
@@ -229,10 +286,12 @@ function ProductTable({ title, color, items, stocks, jeonsan, adjustments, onSto
               <td className={styles.num}>{totalBoxes > 0 ? `${totalBoxes}박스` : '—'}</td>
             </tr>
             <tr className={styles.boxRow}>
-              <td colSpan={9}>{title.charAt(0).toUpperCase() + title.slice(1)} 총 박스 수</td>
+              <td colSpan={9}>{displayTitle} 총 박스 수</td>
               <td className={styles.num}>
-                <span className={`${styles.boxBadge} ${isOdd ? styles.boxBadgeOdd : ''}`}
-                  style={isOdd ? undefined : { background: color }}>
+                <span
+                  className={`${styles.boxBadge} ${isOdd ? styles.boxBadgeOdd : ''}`}
+                  style={isOdd ? undefined : { background: color }}
+                >
                   {isOdd ? `${totalBoxes}+½` : `${totalBoxes}박스`}
                 </span>
               </td>
@@ -291,6 +350,7 @@ export default function Home() {
   const [stocks,      setStocks]      = useState(defaultStocks);
   const [jeonsan,     setJeonsan]     = useState(defaultJeonsan);
   const [adjustments, setAdjustments] = useState(defaultAdj);
+  const [ocha,        setOcha]        = useState(defaultOcha);
   const [hydrated,    setHydrated]    = useState(false);
 
   useEffect(() => {
@@ -301,6 +361,7 @@ export default function Home() {
         if (p.stocks)      setStocks(p.stocks);
         if (p.jeonsan)     setJeonsan(p.jeonsan);
         if (p.adjustments) setAdjustments(p.adjustments);
+        if (p.ocha)        setOcha(p.ocha);
       }
     } catch {}
     setHydrated(true);
@@ -308,8 +369,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments }));
-  }, [stocks, jeonsan, adjustments, hydrated]);
+    localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha }));
+  }, [stocks, jeonsan, adjustments, ocha, hydrated]);
 
   const resetProductAdj = useCallback((product) => {
     setAdjustments((prev) => ({ ...prev, [product]: { M1: 0, M2: 0, L: 0, XL: 0 } }));
@@ -327,14 +388,21 @@ export default function Home() {
     }));
   }, []);
 
+  const handleOchaChange = useCallback((product, size, val) => {
+    setOcha((prev) => ({ ...prev, [product]: { ...prev[product], [size]: val } }));
+  }, []);
+
+  const handleOchaReset = useCallback(() => {
+    setOcha(defaultOcha());
+  }, []);
+
   const handleUpload = useCallback((results) => {
     setStocks((prev) => {
       const next = { ...prev };
       for (const [product, jsMap] of Object.entries(results)) {
-        const delta = GEUMJU_DELTA[product] ?? {};
         next[product] = { ...next[product] };
         for (const [size, jsVal] of Object.entries(jsMap)) {
-          next[product][size] = jsVal + (delta[size] ?? 0);
+          next[product][size] = jsVal + (ocha[product]?.[size] ?? 0);
         }
       }
       return next;
@@ -347,19 +415,20 @@ export default function Home() {
       return next;
     });
     setAdjustments(defaultAdj());
-  }, []);
+  }, [ocha]);
 
   const handleReset = () => {
     setStocks(defaultStocks());
     setJeonsan(defaultJeonsan());
     setAdjustments(defaultAdj());
+    setOcha(defaultOcha());
   };
 
   const calcTotalBoxes = (product) => {
     const packs = USAGE_DATA[product].reduce((s, item) => {
       const stock = stocks[product][item.size] ?? item.default_stock;
       const { packs: base } = calcOrder(item.avg_monthly, stock);
-      const adj = (adjustments[product][item.size] || 0);
+      const adj = adjustments[product][item.size] || 0;
       return s + Math.max(0, base + adj);
     }, 0);
     return Math.floor(packs / 2);
@@ -390,7 +459,13 @@ export default function Home() {
         <main className={styles.main}>
           <UploadSection onUpload={handleUpload} />
 
-          {['mediquet', 'rapband'].map((product) => (
+          <OchaPanel
+            ocha={ocha}
+            onChange={handleOchaChange}
+            onReset={handleOchaReset}
+          />
+
+          {PRODUCTS.map((product) => (
             <ProductTable
               key={product}
               title={product}
@@ -398,6 +473,7 @@ export default function Home() {
               items={USAGE_DATA[product]}
               stocks={stocks[product]}
               jeonsan={jeonsan[product]}
+              ocha={ocha[product]}
               adjustments={adjustments[product]}
               onStockChange={(size, val) => handleStockChange(product, size, val)}
               onAdjust={(size, delta) => handleAdjust(product, size, delta)}
@@ -438,7 +514,7 @@ export default function Home() {
               <li>1팩 = 30개 / 1박스 = 60개 (2팩)</li>
               <li>팩수가 홀수면 테이블 하단에서 조정 방법을 선택할 수 있습니다</li>
               <li>무료배송 기준: 합계 6박스 이상</li>
-              <li>금주 조정 = 창고재고 − 전산재고 (변동 시 알려주세요)</li>
+              <li>오차 = 창고 실재고 − 전산 재고 (상단 오차 설정에서 수정 가능)</li>
             </ul>
           </div>
         </main>
