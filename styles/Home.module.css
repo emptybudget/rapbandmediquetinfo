@@ -1,0 +1,257 @@
+.page {
+  min-height: 100vh;
+  background: #f5f6fa;
+  font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  color: #222;
+}
+
+.header {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 28px 24px 20px;
+  text-align: center;
+}
+
+.title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  font-size: 0.82rem;
+  color: #aac4f5;
+  margin: 0 0 14px;
+}
+
+.resetBtn {
+  background: transparent;
+  border: 1px solid #4a6fa5;
+  color: #aac4f5;
+  padding: 5px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.15s;
+}
+
+.resetBtn:hover {
+  background: #4a6fa5;
+  color: #fff;
+}
+
+.main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Section */
+.section {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  overflow: hidden;
+}
+
+.sectionTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 14px 18px;
+  margin: 0;
+  border-left: 5px solid #ccc;
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+}
+
+/* Table */
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+
+.table th {
+  background: #f0f2f8;
+  padding: 10px 12px;
+  text-align: center;
+  font-weight: 600;
+  color: #444;
+  border-bottom: 2px solid #dde3f0;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.table tbody tr:hover {
+  background: #fafbff;
+}
+
+.needOrder {
+  background: #fffbf0 !important;
+}
+
+.sizeCell {
+  font-weight: 600;
+  color: #333;
+  text-align: left !important;
+  white-space: nowrap;
+}
+
+.stockInput {
+  width: 70px;
+  padding: 5px 8px;
+  border: 1px solid #d0d7e8;
+  border-radius: 5px;
+  text-align: center;
+  font-size: 0.9rem;
+  transition: border-color 0.15s;
+}
+
+.stockInput:focus {
+  outline: none;
+  border-color: #4a6fa5;
+  box-shadow: 0 0 0 2px rgba(74,111,165,0.15);
+}
+
+.num {
+  text-align: center;
+}
+
+.monthCell {
+  color: #666;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.small {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #888;
+}
+
+.red { color: #e74c3c; font-weight: 600; }
+.green { color: #27ae60; }
+.bold { font-weight: 700; color: #1a1a2e; }
+
+/* Tfoot */
+.totalRow td {
+  background: #f7f8fc;
+  font-weight: 600;
+  color: #444;
+  border-top: 2px solid #dde3f0;
+  border-bottom: 1px solid #dde3f0;
+}
+
+.boxRow td {
+  background: #eef1fb;
+  font-weight: 700;
+  color: #333;
+  border-top: 1px solid #dde3f0;
+}
+
+.boxBadge {
+  display: inline-block;
+  color: #fff;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* Summary */
+.summary {
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.summaryOk { background: #eafaf1; border: 1px solid #82e0aa; }
+.summaryWarn { background: #fff8e5; border: 1px solid #f0c040; }
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.summaryLabel {
+  font-size: 0.75rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.summaryVal {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.summaryTotal { font-size: 1.9rem; color: #e74c3c; }
+
+.summaryPlus {
+  font-size: 1.4rem;
+  color: #aaa;
+  font-weight: 300;
+}
+
+.summaryMsg {
+  text-align: center;
+  margin: 0;
+  font-size: 0.95rem;
+  color: #444;
+}
+
+/* Info box */
+.infoBox {
+  background: #f0f2f8;
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-size: 0.82rem;
+  color: #555;
+}
+
+.infoBox strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.infoBox ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+
+@media (max-width: 600px) {
+  .title { font-size: 1.25rem; }
+  .table { font-size: 0.8rem; }
+  .table th, .table td { padding: 7px 8px; }
+  .stockInput { width: 58px; }
+  .summaryVal { font-size: 1.2rem; }
+  .summaryTotal { font-size: 1.5rem; }
+}
