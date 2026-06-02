@@ -1,7 +1,7 @@
 import Head from 'next/head';
 import { useState, useCallback, useEffect, Fragment } from 'react';
 import {
-  PRODUCTS, CALCULATED_PRODUCTS, MANUAL_PRODUCTS,
+  PRODUCTS, CALCULATED_PRODUCTS, MANUAL_PRODUCTS, PRODUCT_MAP,
   PACK_SIZE, FREE_SHIP_BOXES,
 } from '../lib/products';
 import styles from '../styles/Home.module.css';
@@ -10,7 +10,7 @@ import styles from '../styles/Home.module.css';
 const EMPTY_ITEM = () => ({ name: '', spec: '', qty: 1 });
 const LS_SUPPLY = 'supplyOrderDraft';
 
-function SupplyOrderTab() {
+function SupplyOrderTab({ onDownloaded }) {
   const [requester, setRequester] = useState('');
   const [recipient, setRecipient] = useState('');
   const [items, setItems] = useState([EMPTY_ITEM()]);
@@ -64,6 +64,7 @@ function SupplyOrderTab() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      onDownloaded?.({ requester, recipient, items: validItems });
     } catch (e) {
       alert('다운로드 실패: ' + e.message);
     }
@@ -180,6 +181,7 @@ function SupplyOrderTab() {
 }
 
 const LS_KEY = 'bandOrderStocks';
+const LS_LOG = 'orderLog';
 
 function calcOrder(avgMonthly, currentStock) {
   const safetyStock = Math.ceil(avgMonthly);
@@ -217,6 +219,27 @@ function defaultManualOrders() {
   return Object.fromEntries(
     MANUAL_PRODUCTS.map(p => [p.id, Object.fromEntries(p.sizes.map(s => [s.id, s.default_stock]))])
   );
+}
+
+function fmtLogDate(ts) {
+  const d = new Date(ts);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function fmtLogContent(entry) {
+  if (entry.tab === 'supply') {
+    const items = entry.items
+      .map(it => `${it.name}${it.spec ? `(${it.spec})` : ''} ${it.qty}개`)
+      .join(', ');
+    return entry.recipient ? `[${entry.recipient}] ${items}` : items;
+  }
+  const byProduct = {};
+  for (const o of entry.orders) {
+    (byProduct[o.product] ??= []).push(`${o.size} ${o.qty}개`);
+  }
+  return Object.entries(byProduct)
+    .map(([pid, szs]) => `${PRODUCT_MAP[pid]?.name ?? pid}: ${szs.join(', ')}`)
+    .join(' / ');
 }
 
 async function parseExcelStocks(file, product) {
@@ -567,6 +590,43 @@ function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChan
   );
 }
 
+// ── Order Log ─────────────────────────────────────────────
+function OrderLog({ log, onClear }) {
+  if (!log.length) return null;
+  return (
+    <div className={styles.section}>
+      <h2 className={styles.sectionTitle} style={{ borderLeftColor: '#aaa' }}>
+        발주 이력
+        <button className={styles.logClearBtn} onClick={onClear}>이력 삭제</button>
+      </h2>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th style={{ width: 72, whiteSpace: 'nowrap' }}>일시</th>
+              <th style={{ width: 100 }}>구분</th>
+              <th>내용</th>
+            </tr>
+          </thead>
+          <tbody>
+            {log.map(entry => (
+              <tr key={entry.id}>
+                <td className={styles.logDate}>{fmtLogDate(entry.ts)}</td>
+                <td>
+                  <span className={entry.tab === 'bandage' ? styles.logBadgeBandage : styles.logBadgeSupply}>
+                    {entry.tab === 'bandage' ? '💊 랩밴드' : '📦 소모품'}
+                  </span>
+                </td>
+                <td className={styles.logContent}>{fmtLogContent(entry)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────
 export default function Home() {
   const [activeTab,    setActiveTab]    = useState('bandage'); // 'bandage' | 'supply'
@@ -575,6 +635,7 @@ export default function Home() {
   const [adjustments,  setAdjustments]  = useState(defaultAdj);
   const [ocha,         setOcha]         = useState(defaultOcha);
   const [manualOrders, setManualOrders] = useState(defaultManualOrders);
+  const [orderLog,     setOrderLog]     = useState([]);
   const [hydrated,     setHydrated]     = useState(false);
   const [downloading,  setDownloading]  = useState(false);
 
@@ -590,6 +651,8 @@ export default function Home() {
         if (p.manualOrders) setManualOrders(p.manualOrders);
         else if (p.stocking) setManualOrders(prev => ({ ...prev, stocking: p.stocking }));
       }
+      const logSaved = localStorage.getItem(LS_LOG);
+      if (logSaved) setOrderLog(JSON.parse(logSaved));
     } catch {}
     setHydrated(true);
   }, []);
@@ -598,6 +661,11 @@ export default function Home() {
     if (!hydrated) return;
     localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha, manualOrders }));
   }, [stocks, jeonsan, adjustments, ocha, manualOrders, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(LS_LOG, JSON.stringify(orderLog));
+  }, [orderLog, hydrated]);
 
   const resetProductAdj = useCallback((productId) => {
     const prod = CALCULATED_PRODUCTS.find(p => p.id === productId);
@@ -650,6 +718,13 @@ export default function Home() {
     setManualOrders(prev => ({ ...prev, [productId]: { ...prev[productId], [sizeId]: val } }));
   }, []);
 
+  const addLogEntry = useCallback((entry) => {
+    setOrderLog(prev => [
+      { ...entry, id: Date.now(), ts: new Date().toISOString() },
+      ...prev,
+    ].slice(0, 200));
+  }, []);
+
   const handleDownload = async () => {
     setDownloading(true);
     try {
@@ -695,6 +770,7 @@ export default function Home() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      addLogEntry({ tab: 'bandage', orders });
     } catch (e) {
       alert('다운로드 실패: ' + e.message);
     }
@@ -759,7 +835,11 @@ export default function Home() {
         </div>
 
         <main className={styles.main}>
-          {activeTab === 'supply' && <SupplyOrderTab />}
+          {activeTab === 'supply' && (
+            <SupplyOrderTab
+              onDownloaded={(data) => addLogEntry({ tab: 'supply', ...data })}
+            />
+          )}
           {activeTab === 'bandage' && <UploadSection onUpload={handleUpload} />}
 
           {activeTab === 'bandage' && (
@@ -834,6 +914,8 @@ export default function Home() {
               </div>
             </>
           )}
+
+          <OrderLog log={orderLog} onClear={() => setOrderLog([])} />
         </main>
       </div>
     </>
