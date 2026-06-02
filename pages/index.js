@@ -181,7 +181,6 @@ function SupplyOrderTab({ onDownloaded }) {
 }
 
 const LS_KEY = 'bandOrderStocks';
-const LS_LOG = 'orderLog';
 
 function calcOrder(avgMonthly, currentStock) {
   const safetyStock = Math.ceil(avgMonthly);
@@ -651,21 +650,19 @@ export default function Home() {
         if (p.manualOrders) setManualOrders(p.manualOrders);
         else if (p.stocking) setManualOrders(prev => ({ ...prev, stocking: p.stocking }));
       }
-      const logSaved = localStorage.getItem(LS_LOG);
-      if (logSaved) setOrderLog(JSON.parse(logSaved));
     } catch {}
     setHydrated(true);
+    // Load shared log from server
+    fetch('/api/log')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setOrderLog(data); })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha, manualOrders }));
   }, [stocks, jeonsan, adjustments, ocha, manualOrders, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(LS_LOG, JSON.stringify(orderLog));
-  }, [orderLog, hydrated]);
 
   const resetProductAdj = useCallback((productId) => {
     const prod = CALCULATED_PRODUCTS.find(p => p.id === productId);
@@ -719,10 +716,13 @@ export default function Home() {
   }, []);
 
   const addLogEntry = useCallback((entry) => {
-    setOrderLog(prev => [
-      { ...entry, id: Date.now(), ts: new Date().toISOString() },
-      ...prev,
-    ].slice(0, 200));
+    const newEntry = { ...entry, id: Date.now(), ts: new Date().toISOString() };
+    setOrderLog(prev => [newEntry, ...prev].slice(0, 200)); // optimistic
+    fetch('/api/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newEntry),
+    }).catch(() => {});
   }, []);
 
   const handleDownload = async () => {
@@ -915,7 +915,13 @@ export default function Home() {
             </>
           )}
 
-          <OrderLog log={orderLog} onClear={() => setOrderLog([])} />
+          <OrderLog
+            log={orderLog}
+            onClear={() => {
+              setOrderLog([]);
+              fetch('/api/log', { method: 'DELETE' }).catch(() => {});
+            }}
+          />
         </main>
       </div>
     </>
