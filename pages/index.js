@@ -40,6 +40,10 @@ function defaultAdj() {
   };
 }
 
+function defaultStocking() {
+  return { L: 0, XL: 0 };
+}
+
 function defaultOcha() {
   return {
     mediquet: { ...DEFAULT_OCHA.mediquet },
@@ -169,6 +173,62 @@ function OchaPanel({ ocha, onChange, onReset }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Stocking Section ──────────────────────────────────────
+const STOCKING_SIZES = ['L', 'XL'];
+
+function StockingSection({ stocking, onChange }) {
+  const hasOrder = STOCKING_SIZES.some((s) => stocking[s] > 0);
+  return (
+    <div className={styles.section}>
+      <h2 className={styles.sectionTitle} style={{ borderLeftColor: '#8e44ad' }}>
+        스타킹
+      </h2>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th style={{ width: '120px' }}>사이즈</th>
+              <th>발주수량 <span className={styles.small}>(수기 입력)</span></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {STOCKING_SIZES.map((size) => (
+              <tr key={size} className={stocking[size] > 0 ? styles.needOrder : ''}>
+                <td>
+                  <span className={styles.stockingChip}>{size}</span>
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min="0"
+                    value={stocking[size]}
+                    onChange={(e) => onChange(size, Number(e.target.value))}
+                    className={styles.stockInput}
+                  />
+                </td>
+                <td className={`${styles.num} ${stocking[size] > 0 ? styles.bold : ''}`}>
+                  {stocking[size] > 0 ? `${stocking[size]}개` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {hasOrder && (
+            <tfoot>
+              <tr className={styles.totalRow}>
+                <td colSpan={2}>총 발주량</td>
+                <td className={styles.num}>
+                  {STOCKING_SIZES.reduce((s, sz) => s + stocking[sz], 0)}개
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 }
@@ -351,6 +411,7 @@ export default function Home() {
   const [jeonsan,     setJeonsan]     = useState(defaultJeonsan);
   const [adjustments, setAdjustments] = useState(defaultAdj);
   const [ocha,        setOcha]        = useState(defaultOcha);
+  const [stocking,    setStocking]    = useState(defaultStocking);
   const [hydrated,    setHydrated]    = useState(false);
   const [downloading, setDownloading] = useState(false);
 
@@ -363,6 +424,7 @@ export default function Home() {
         if (p.jeonsan)     setJeonsan(p.jeonsan);
         if (p.adjustments) setAdjustments(p.adjustments);
         if (p.ocha)        setOcha(p.ocha);
+        if (p.stocking)    setStocking(p.stocking);
       }
     } catch {}
     setHydrated(true);
@@ -370,7 +432,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha }));
+    localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha, stocking }));
   }, [stocks, jeonsan, adjustments, ocha, hydrated]);
 
   const resetProductAdj = useCallback((product) => {
@@ -433,6 +495,11 @@ export default function Home() {
         }
       }
 
+      // 스타킹
+      STOCKING_SIZES.forEach((size) => {
+        if (stocking[size] > 0) orders.push({ product: 'stocking', size, qty: stocking[size] });
+      });
+
       if (orders.length === 0) {
         alert('발주할 항목이 없습니다.');
         setDownloading(false);
@@ -464,11 +531,16 @@ export default function Home() {
     setDownloading(false);
   };
 
+  const handleStockingChange = useCallback((size, val) => {
+    setStocking((prev) => ({ ...prev, [size]: val }));
+  }, []);
+
   const handleReset = () => {
     setStocks(defaultStocks());
     setJeonsan(defaultJeonsan());
     setAdjustments(defaultAdj());
     setOcha(defaultOcha());
+    setStocking(defaultStocking());
   };
 
   const calcTotalBoxes = (product) => {
@@ -511,6 +583,8 @@ export default function Home() {
             onChange={handleOchaChange}
             onReset={handleOchaReset}
           />
+
+          <StockingSection stocking={stocking} onChange={handleStockingChange} />
 
           {PRODUCTS.map((product) => (
             <ProductTable

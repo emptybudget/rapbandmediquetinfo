@@ -10,24 +10,37 @@ const SIZE_FORMAT = {
 
 const PRODUCT_NAME = {
   mediquet: 'Mediquet',
-  rapband:  'Rap Band',
+  rapband:  'Rapband',
+  stocking: '스타킹',
 };
+
+// 스타킹은 색상 없이 사이즈만
+function getSizeLabel(product, size) {
+  if (product === 'stocking') return size;
+  return SIZE_FORMAT[size] ?? size;
+}
+
+// 품명·규격·사용분 셀에 맑은고딕 + 가운데정렬 적용
+function styleDataCell(cell) {
+  cell.font = { ...(cell.font ?? {}), name: '맑은 고딕' };
+  cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false };
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const { orders } = req.body;
 
-  // 원본 템플릿 로드 (ExcelJS는 서식·병합 셀 완전 보존)
+  // 원본 템플릿 로드 — 서식·병합 셀 완전 보존
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(TEMPLATE_B64, 'base64'));
 
   const ws = workbook.getWorksheet('렙메디케어');
 
-  // 날짜만 오늘로 변경 (D4) — 셀 서식 유지
+  // 날짜만 오늘로 변경 (D4)
   ws.getCell('D4').value = new Date();
 
-  // 기존 주문행 값 초기화 (셀 서식·병합은 그대로)
+  // 기존 주문행 초기화 (값만 지움, 서식 유지)
   for (let row = 10; row <= 22; row++) {
     ws.getCell(`A${row}`).value = null;
     ws.getCell(`D${row}`).value = null;
@@ -36,14 +49,24 @@ export default async function handler(req, res) {
     ws.getCell(`P${row}`).value = null;
   }
 
-  // 발주 데이터 기입
+  // 발주 데이터 기입 + 맑은고딕 가운데정렬
   orders.forEach((item, idx) => {
     const row = 10 + idx;
     if (row > 22) return;
+
     ws.getCell(`A${row}`).value = idx + 1;
-    ws.getCell(`D${row}`).value = PRODUCT_NAME[item.product] ?? item.product;
-    ws.getCell(`F${row}`).value = SIZE_FORMAT[item.size] ?? item.size;
-    ws.getCell(`H${row}`).value = item.qty; // 사용분(발주수량)
+
+    const dCell = ws.getCell(`D${row}`);
+    dCell.value = PRODUCT_NAME[item.product] ?? item.product;
+    styleDataCell(dCell);
+
+    const fCell = ws.getCell(`F${row}`);
+    fCell.value = getSizeLabel(item.product, item.size);
+    styleDataCell(fCell);
+
+    const hCell = ws.getCell(`H${row}`);
+    hCell.value = item.qty;
+    styleDataCell(hCell);
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

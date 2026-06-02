@@ -188,6 +188,18 @@
   padding: 2px 7px; border-radius: 8px; white-space: nowrap;
 }
 
+/* Stocking chip */
+.stockingChip {
+  display: inline-block;
+  background: #8e44ad;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 3px 14px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
 /* 전산/금주 cell */
 .jeonsanCell { font-size: 0.78rem; line-height: 1.6; }
 .jeonsanVal  { display: block; color: #555; }
