@@ -8,12 +8,34 @@ import styles from '../styles/Home.module.css';
 
 // ── Supply Order Tab ───────────────────────────────────────
 const EMPTY_ITEM = () => ({ name: '', spec: '', qty: 1 });
+const LS_SUPPLY = 'supplyOrderDraft';
 
 function SupplyOrderTab() {
   const [requester, setRequester] = useState('');
   const [recipient, setRecipient] = useState('');
   const [items, setItems] = useState([EMPTY_ITEM()]);
+  const [hydrated, setHydrated] = useState(false);
   const [downloading, setDownloading] = useState(false);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LS_SUPPLY);
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p.requester !== undefined) setRequester(p.requester);
+        if (p.recipient !== undefined) setRecipient(p.recipient);
+        if (p.items?.length)           setItems(p.items);
+      }
+    } catch {}
+    setHydrated(true);
+  }, []);
+
+  // Auto-save on every change
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(LS_SUPPLY, JSON.stringify({ requester, recipient, items })); } catch {}
+  }, [requester, recipient, items, hydrated]);
 
   const addItem = () => setItems(prev => [...prev, EMPTY_ITEM()]);
   const removeItem = (i) => setItems(prev => prev.filter((_, idx) => idx !== i));
