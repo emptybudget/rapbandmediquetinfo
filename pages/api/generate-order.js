@@ -49,24 +49,44 @@ export default async function handler(req, res) {
     ws.getCell(`P${row}`).value = null;
   }
 
-  // 발주 데이터 기입 + 맑은고딕 가운데정렬
-  orders.forEach((item, idx) => {
-    const row = 10 + idx;
-    if (row > 22) return;
+  // 품목별로 그룹화 (mediquet → rapband → stocking 순)
+  const groups = [];
+  let curProd = null;
+  for (const item of orders) {
+    if (item.product !== curProd) {
+      groups.push([]);
+      curProd = item.product;
+    }
+    groups[groups.length - 1].push(item);
+  }
 
-    ws.getCell(`A${row}`).value = idx + 1;
+  // 발주 데이터 기입 — 그룹 사이 한 행 띄우기
+  let rowOffset = 0; // 행 10 기준 오프셋
+  let orderNum  = 1;
 
-    const dCell = ws.getCell(`D${row}`);
-    dCell.value = PRODUCT_NAME[item.product] ?? item.product;
-    styleDataCell(dCell);
+  groups.forEach((group, gi) => {
+    if (gi > 0) rowOffset++; // 그룹 사이 빈 행
 
-    const fCell = ws.getCell(`F${row}`);
-    fCell.value = getSizeLabel(item.product, item.size);
-    styleDataCell(fCell);
+    group.forEach((item) => {
+      const row = 10 + rowOffset;
+      if (row > 22) return;
 
-    const hCell = ws.getCell(`H${row}`);
-    hCell.value = item.qty;
-    styleDataCell(hCell);
+      ws.getCell(`A${row}`).value = orderNum++;
+
+      const dCell = ws.getCell(`D${row}`);
+      dCell.value = PRODUCT_NAME[item.product] ?? item.product;
+      styleDataCell(dCell);
+
+      const fCell = ws.getCell(`F${row}`);
+      fCell.value = getSizeLabel(item.product, item.size);
+      styleDataCell(fCell);
+
+      const hCell = ws.getCell(`H${row}`);
+      hCell.value = item.qty;
+      styleDataCell(hCell);
+
+      rowOffset++;
+    });
   });
 
   const buffer = await workbook.xlsx.writeBuffer();

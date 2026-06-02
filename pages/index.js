@@ -584,8 +584,6 @@ export default function Home() {
             onReset={handleOchaReset}
           />
 
-          <StockingSection stocking={stocking} onChange={handleStockingChange} />
-
           {PRODUCTS.map((product) => (
             <ProductTable
               key={product}
@@ -601,6 +599,8 @@ export default function Home() {
               onResetAdj={() => resetProductAdj(product)}
             />
           ))}
+
+          <StockingSection stocking={stocking} onChange={handleStockingChange} />
 
           <div className={`${styles.summary} ${meetsMin ? styles.summaryOk : styles.summaryWarn}`}>
             <div className={styles.summaryRow}>
