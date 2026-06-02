@@ -6,6 +6,157 @@ import {
 } from '../lib/products';
 import styles from '../styles/Home.module.css';
 
+// ── Supply Order Tab ───────────────────────────────────────
+const EMPTY_ITEM = () => ({ name: '', spec: '', qty: 1 });
+
+function SupplyOrderTab() {
+  const [requester, setRequester] = useState('');
+  const [recipient, setRecipient] = useState('');
+  const [items, setItems] = useState([EMPTY_ITEM()]);
+  const [downloading, setDownloading] = useState(false);
+
+  const addItem = () => setItems(prev => [...prev, EMPTY_ITEM()]);
+  const removeItem = (i) => setItems(prev => prev.filter((_, idx) => idx !== i));
+  const updateItem = (i, field, val) =>
+    setItems(prev => prev.map((item, idx) => idx === i ? { ...item, [field]: val } : item));
+
+  const handleDownload = async () => {
+    const validItems = items.filter(it => it.name.trim());
+    if (!validItems.length) { alert('품명을 입력해주세요.'); return; }
+    setDownloading(true);
+    try {
+      const res = await fetch('/api/generate-supply-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requester, recipient, items: validItems }),
+      });
+      if (!res.ok) throw new Error('서버 오류 ' + res.status);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date();
+      const ds = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
+      a.href = url;
+      a.download = `${validItems[0].name}_발주서_${ds}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('다운로드 실패: ' + e.message);
+    }
+    setDownloading(false);
+  };
+
+  return (
+    <div className={styles.supplyWrap}>
+      {/* Header info */}
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle} style={{ borderLeftColor: '#2c7be5' }}>발주 정보</h2>
+        <div className={styles.supplyHeaderGrid}>
+          <div className={styles.supplyField}>
+            <label className={styles.supplyLabel}>출고의뢰인</label>
+            <input
+              type="text"
+              value={requester}
+              onChange={e => setRequester(e.target.value)}
+              placeholder="이름 입력"
+              className={styles.supplyInput}
+            />
+          </div>
+          <div className={styles.supplyField}>
+            <label className={styles.supplyLabel}>수주처 명</label>
+            <input
+              type="text"
+              value={recipient}
+              onChange={e => setRecipient(e.target.value)}
+              placeholder="수주처 입력"
+              className={styles.supplyInput}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Items table */}
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle} style={{ borderLeftColor: '#2c7be5' }}>발주 품목</h2>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th style={{ width: 36 }}>No.</th>
+                <th>품명</th>
+                <th style={{ width: 160 }}>규격</th>
+                <th style={{ width: 90 }}>수량</th>
+                <th style={{ width: 44 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, i) => (
+                <tr key={i}>
+                  <td className={styles.num}>{i + 1}</td>
+                  <td>
+                    <input
+                      type="text"
+                      value={item.name}
+                      onChange={e => updateItem(i, 'name', e.target.value)}
+                      placeholder="품명"
+                      className={styles.supplyInputWide}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={item.spec}
+                      onChange={e => updateItem(i, 'spec', e.target.value)}
+                      placeholder="규격"
+                      className={styles.supplyInputMid}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min="0"
+                      value={item.qty}
+                      onChange={e => updateItem(i, 'qty', e.target.value)}
+                      className={styles.stockInput}
+                    />
+                  </td>
+                  <td>
+                    {items.length > 1 && (
+                      <button
+                        onClick={() => removeItem(i)}
+                        className={styles.supplyRemoveBtn}
+                        title="삭제"
+                      >✕</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className={styles.supplyFooter}>
+          {items.length < 13 && (
+            <button onClick={addItem} className={styles.supplyAddBtn}>+ 품목 추가</button>
+          )}
+          <span className={styles.supplyCount}>{items.length} / 13행</span>
+        </div>
+      </div>
+
+      {/* Download */}
+      <button
+        onClick={handleDownload}
+        disabled={downloading}
+        className={styles.downloadBtn}
+        style={{ marginTop: 0 }}
+      >
+        {downloading ? '생성 중...' : '📄 발주서 엑셀 다운로드'}
+      </button>
+    </div>
+  );
+}
+
 const LS_KEY = 'bandOrderStocks';
 
 function calcOrder(avgMonthly, currentStock) {
@@ -396,6 +547,7 @@ function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChan
 
 // ── Main Page ──────────────────────────────────────────────
 export default function Home() {
+  const [activeTab,    setActiveTab]    = useState('bandage'); // 'bandage' | 'supply'
   const [stocks,       setStocks]       = useState(defaultStocks);
   const [jeonsan,      setJeonsan]      = useState(defaultJeonsan);
   const [adjustments,  setAdjustments]  = useState(defaultAdj);
@@ -561,82 +713,105 @@ export default function Home() {
       </Head>
       <div className={styles.page}>
         <header className={styles.header}>
-          <h1 className={styles.title}>랩밴드 / 메디켓 발주 관리</h1>
-          <p className={styles.subtitle}>최근 3개월 월평균 사용량 기준 · 적정재고 1배수 · 30개 단위 발주</p>
-          <button onClick={handleReset} className={styles.resetBtn}>초기화</button>
+          <h1 className={styles.title}>발주 관리</h1>
+          <p className={styles.subtitle}>랩밴드 · 메디켓 · 소모품 발주서 자동 생성</p>
+          {activeTab === 'bandage' && (
+            <button onClick={handleReset} className={styles.resetBtn}>초기화</button>
+          )}
         </header>
 
+        {/* Tab navigation */}
+        <div className={styles.tabNav}>
+          <button
+            className={`${styles.tabBtn} ${activeTab === 'bandage' ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab('bandage')}
+          >
+            💊 랩밴드 / 메디켓 발주
+          </button>
+          <button
+            className={`${styles.tabBtn} ${activeTab === 'supply' ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab('supply')}
+          >
+            📦 소모품 발주
+          </button>
+        </div>
+
         <main className={styles.main}>
-          <UploadSection onUpload={handleUpload} />
+          {activeTab === 'supply' && <SupplyOrderTab />}
+          {activeTab === 'bandage' && <UploadSection onUpload={handleUpload} />}
 
-          <OchaPanel ocha={ocha} onChange={handleOchaChange} onReset={handleOchaReset} />
+          {activeTab === 'bandage' && (
+            <>
+              <OchaPanel ocha={ocha} onChange={handleOchaChange} onReset={handleOchaReset} />
 
-          {CALCULATED_PRODUCTS.map(prod => (
-            <ProductTable
-              key={prod.id}
-              product={prod}
-              stocks={stocks[prod.id]}
-              jeonsan={jeonsan[prod.id]}
-              ocha={ocha[prod.id]}
-              adjustments={adjustments[prod.id]}
-              onStockChange={(sizeId, val) => handleStockChange(prod.id, sizeId, val)}
-              onAdjust={(sizeId, delta) => handleAdjust(prod.id, sizeId, delta)}
-              onResetAdj={() => resetProductAdj(prod.id)}
-            />
-          ))}
-
-          {MANUAL_PRODUCTS.map(prod => (
-            <ManualProductSection
-              key={prod.id}
-              product={prod}
-              orders={manualOrders[prod.id] || {}}
-              onChange={handleManualOrderChange}
-            />
-          ))}
-
-          <div className={`${styles.summary} ${meetsMin ? styles.summaryOk : styles.summaryWarn}`}>
-            <div className={styles.summaryRow}>
-              {CALCULATED_PRODUCTS.map((prod, i) => (
-                <Fragment key={prod.id}>
-                  {i > 0 && <span className={styles.summaryPlus}>+</span>}
-                  <div className={styles.summaryBlock}>
-                    <span className={styles.summaryLabel}>{prod.name}</span>
-                    <span className={styles.summaryVal}>{boxesByProduct[prod.id]}박스</span>
-                  </div>
-                </Fragment>
+              {CALCULATED_PRODUCTS.map(prod => (
+                <ProductTable
+                  key={prod.id}
+                  product={prod}
+                  stocks={stocks[prod.id]}
+                  jeonsan={jeonsan[prod.id]}
+                  ocha={ocha[prod.id]}
+                  adjustments={adjustments[prod.id]}
+                  onStockChange={(sizeId, val) => handleStockChange(prod.id, sizeId, val)}
+                  onAdjust={(sizeId, delta) => handleAdjust(prod.id, sizeId, delta)}
+                  onResetAdj={() => resetProductAdj(prod.id)}
+                />
               ))}
-              <span className={styles.summaryPlus}>=</span>
-              <div className={styles.summaryBlock}>
-                <span className={styles.summaryLabel}>총 발주</span>
-                <span className={`${styles.summaryVal} ${styles.summaryTotal}`}>{grandTotal}박스</span>
-              </div>
-            </div>
-            {meetsMin
-              ? <p className={styles.summaryMsg}>✅ 무료배송 조건 충족 (6박스 이상)</p>
-              : <p className={styles.summaryMsg}>
-                  ⚠️ 현재 {grandTotal}박스 — 무료배송까지 <strong>{FREE_SHIP_BOXES - grandTotal}박스</strong> 부족
-                </p>
-            }
-            <button
-              onClick={handleDownload}
-              disabled={downloading || grandTotal === 0}
-              className={styles.downloadBtn}
-            >
-              {downloading ? '생성 중...' : '📄 발주서 엑셀 다운로드'}
-            </button>
-          </div>
 
-          <div className={styles.infoBox}>
-            <strong>계산 기준</strong>
-            <ul>
-              <li>적정재고 = 최근 3개월 월평균 사용량 × 1배수</li>
-              <li>발주수량 = (적정재고 − 창고재고) 30개 단위 올림</li>
-              <li>1팩 = 30개 / 1박스 = 60개 (2팩)</li>
-              <li>팩수가 홀수면 테이블 하단에서 조정 방법을 선택할 수 있습니다</li>
-              <li>무료배송 기준: 합계 6박스 이상</li>
-              <li>오차 = 창고 실재고 − 전산 재고 (상단 오차 설정에서 수정 가능)</li>
-            </ul>
-          </div>
+              {MANUAL_PRODUCTS.map(prod => (
+                <ManualProductSection
+                  key={prod.id}
+                  product={prod}
+                  orders={manualOrders[prod.id] || {}}
+                  onChange={handleManualOrderChange}
+                />
+              ))}
+
+              <div className={`${styles.summary} ${meetsMin ? styles.summaryOk : styles.summaryWarn}`}>
+                <div className={styles.summaryRow}>
+                  {CALCULATED_PRODUCTS.map((prod, i) => (
+                    <Fragment key={prod.id}>
+                      {i > 0 && <span className={styles.summaryPlus}>+</span>}
+                      <div className={styles.summaryBlock}>
+                        <span className={styles.summaryLabel}>{prod.name}</span>
+                        <span className={styles.summaryVal}>{boxesByProduct[prod.id]}박스</span>
+                      </div>
+                    </Fragment>
+                  ))}
+                  <span className={styles.summaryPlus}>=</span>
+                  <div className={styles.summaryBlock}>
+                    <span className={styles.summaryLabel}>총 발주</span>
+                    <span className={`${styles.summaryVal} ${styles.summaryTotal}`}>{grandTotal}박스</span>
+                  </div>
+                </div>
+                {meetsMin
+                  ? <p className={styles.summaryMsg}>✅ 무료배송 조건 충족 (6박스 이상)</p>
+                  : <p className={styles.summaryMsg}>
+                      ⚠️ 현재 {grandTotal}박스 — 무료배송까지 <strong>{FREE_SHIP_BOXES - grandTotal}박스</strong> 부족
+                    </p>
+                }
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading || grandTotal === 0}
+                  className={styles.downloadBtn}
+                >
+                  {downloading ? '생성 중...' : '📄 발주서 엑셀 다운로드'}
+                </button>
+              </div>
+
+              <div className={styles.infoBox}>
+                <strong>계산 기준</strong>
+                <ul>
+                  <li>적정재고 = 최근 3개월 월평균 사용량 × 1배수</li>
+                  <li>발주수량 = (적정재고 − 창고재고) 30개 단위 올림</li>
+                  <li>1팩 = 30개 / 1박스 = 60개 (2팩)</li>
+                  <li>팩수가 홀수면 테이블 하단에서 조정 방법을 선택할 수 있습니다</li>
+                  <li>무료배송 기준: 합계 6박스 이상</li>
+                  <li>오차 = 창고 실재고 − 전산 재고 (상단 오차 설정에서 수정 가능)</li>
+                </ul>
+              </div>
+            </>
+          )}
         </main>
       </div>
     </>
