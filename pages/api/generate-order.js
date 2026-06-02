@@ -1,26 +1,12 @@
 import ExcelJS from 'exceljs';
 import { TEMPLATE_B64 } from '../../lib/orderTemplate';
+import { PRODUCT_MAP } from '../../lib/products';
 
-const SIZE_FORMAT = {
-  M1: 'M1(빨강)',
-  M2: 'M2(노랑)',
-  L:  'L(주황)',
-  XL: 'XL(검정)',
-};
-
-const PRODUCT_NAME = {
-  mediquet: 'Mediquet',
-  rapband:  'Rapband',
-  stocking: '스타킹',
-};
-
-// 스타킹은 색상 없이 사이즈만
-function getSizeLabel(product, size) {
-  if (product === 'stocking') return size;
-  return SIZE_FORMAT[size] ?? size;
+function getSizeExcel(productId, sizeId) {
+  const sizeObj = PRODUCT_MAP[productId]?.sizes.find(s => s.id === sizeId);
+  return sizeObj?.excelSize ?? sizeId;
 }
 
-// 품명·규격·사용분 셀에 맑은고딕 + 가운데정렬 적용
 function styleDataCell(cell) {
   cell.font = { ...(cell.font ?? {}), name: '맑은 고딕' };
   cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false };
@@ -31,16 +17,12 @@ export default async function handler(req, res) {
 
   const { orders } = req.body;
 
-  // 원본 템플릿 로드 — 서식·병합 셀 완전 보존
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(TEMPLATE_B64, 'base64'));
-
   const ws = workbook.getWorksheet('렙메디케어');
 
-  // 날짜만 오늘로 변경 (D4)
   ws.getCell('D4').value = new Date();
 
-  // 기존 주문행 초기화 (값만 지움, 서식 유지)
   for (let row = 10; row <= 22; row++) {
     ws.getCell(`A${row}`).value = null;
     ws.getCell(`D${row}`).value = null;
@@ -49,24 +31,19 @@ export default async function handler(req, res) {
     ws.getCell(`P${row}`).value = null;
   }
 
-  // 품목별로 그룹화 (mediquet → rapband → stocking 순)
+  // Group by product, insert a blank row between groups
   const groups = [];
   let curProd = null;
   for (const item of orders) {
-    if (item.product !== curProd) {
-      groups.push([]);
-      curProd = item.product;
-    }
+    if (item.product !== curProd) { groups.push([]); curProd = item.product; }
     groups[groups.length - 1].push(item);
   }
 
-  // 발주 데이터 기입 — 그룹 사이 한 행 띄우기
-  let rowOffset = 0; // 행 10 기준 오프셋
+  let rowOffset = 0;
   let orderNum  = 1;
 
   groups.forEach((group, gi) => {
-    if (gi > 0) rowOffset++; // 그룹 사이 빈 행
-
+    if (gi > 0) rowOffset++;
     group.forEach((item) => {
       const row = 10 + rowOffset;
       if (row > 22) return;
@@ -74,11 +51,11 @@ export default async function handler(req, res) {
       ws.getCell(`A${row}`).value = orderNum++;
 
       const dCell = ws.getCell(`D${row}`);
-      dCell.value = PRODUCT_NAME[item.product] ?? item.product;
+      dCell.value = PRODUCT_MAP[item.product]?.excelName ?? item.product;
       styleDataCell(dCell);
 
       const fCell = ws.getCell(`F${row}`);
-      fCell.value = getSizeLabel(item.product, item.size);
+      fCell.value = getSizeExcel(item.product, item.size);
       styleDataCell(fCell);
 
       const hCell = ws.getCell(`H${row}`);
@@ -90,8 +67,7 @@ export default async function handler(req, res) {
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
-
-  const today = new Date();
+  const today  = new Date();
   const ds = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

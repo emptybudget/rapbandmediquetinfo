@@ -1,13 +1,12 @@
 import Head from 'next/head';
-import { useState, useCallback, useEffect } from 'react';
-import { USAGE_DATA, SIZE_COLORS, SIZE_LABELS, DEFAULT_OCHA } from '../lib/usageData';
+import { useState, useCallback, useEffect, Fragment } from 'react';
+import {
+  PRODUCTS, CALCULATED_PRODUCTS, MANUAL_PRODUCTS,
+  PACK_SIZE, FREE_SHIP_BOXES,
+} from '../lib/products';
 import styles from '../styles/Home.module.css';
 
-const PACK_SIZE = 30;
-const FREE_SHIP_BOXES = 6;
 const LS_KEY = 'bandOrderStocks';
-const SIZES = ['M1', 'M2', 'L', 'XL'];
-const PRODUCTS = ['mediquet', 'rapband'];
 
 function calcOrder(avgMonthly, currentStock) {
   const safetyStock = Math.ceil(avgMonthly);
@@ -18,50 +17,46 @@ function calcOrder(avgMonthly, currentStock) {
 }
 
 function defaultStocks() {
-  const out = {};
-  for (const key of PRODUCTS) {
-    out[key] = {};
-    USAGE_DATA[key].forEach((item) => { out[key][item.size] = item.default_stock; });
-  }
-  return out;
+  return Object.fromEntries(
+    CALCULATED_PRODUCTS.map(p => [p.id, Object.fromEntries(p.sizes.map(s => [s.id, s.default_stock]))])
+  );
 }
 
 function defaultJeonsan() {
-  return {
-    mediquet: { M1: null, M2: null, L: null, XL: null },
-    rapband:  { M1: null, M2: null, L: null, XL: null },
-  };
+  return Object.fromEntries(
+    CALCULATED_PRODUCTS.map(p => [p.id, Object.fromEntries(p.sizes.map(s => [s.id, null]))])
+  );
 }
 
 function defaultAdj() {
-  return {
-    mediquet: { M1: 0, M2: 0, L: 0, XL: 0 },
-    rapband:  { M1: 0, M2: 0, L: 0, XL: 0 },
-  };
-}
-
-function defaultStocking() {
-  return { L: 0, XL: 0 };
+  return Object.fromEntries(
+    CALCULATED_PRODUCTS.map(p => [p.id, Object.fromEntries(p.sizes.map(s => [s.id, 0]))])
+  );
 }
 
 function defaultOcha() {
-  return {
-    mediquet: { ...DEFAULT_OCHA.mediquet },
-    rapband:  { ...DEFAULT_OCHA.rapband  },
-  };
+  return Object.fromEntries(
+    CALCULATED_PRODUCTS.map(p => [p.id, { ...p.defaultOcha }])
+  );
 }
 
-async function parseExcelStocks(file) {
+function defaultManualOrders() {
+  return Object.fromEntries(
+    MANUAL_PRODUCTS.map(p => [p.id, Object.fromEntries(p.sizes.map(s => [s.id, s.default_stock]))])
+  );
+}
+
+async function parseExcelStocks(file, product) {
   const XLSX = await import('xlsx');
   const arrayBuffer = await file.arrayBuffer();
   const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: false });
   const result = {};
   for (const sheetName of workbook.SheetNames) {
     const up = sheetName.toUpperCase();
-    for (const size of SIZES) {
-      if (up.includes(`(${size})`)) {
+    for (const sz of product.sizes) {
+      if (up.includes(`(${sz.id})`)) {
         const cell = workbook.Sheets[sheetName]['D3'];
-        if (cell != null) result[size] = Number(cell.v);
+        if (cell != null) result[sz.id] = Number(cell.v);
         break;
       }
     }
@@ -69,31 +64,35 @@ async function parseExcelStocks(file) {
   return result;
 }
 
-function SizeChip({ size, small }) {
+function SizeChip({ sizeObj, small }) {
   return (
     <span
       className={small ? styles.sizeChipSm : styles.sizeChip}
-      style={{ background: SIZE_COLORS[size] }}
+      style={{ background: sizeObj.chipColor }}
     >
-      {SIZE_LABELS[size]}
+      {sizeObj.label}
     </span>
   );
 }
 
 // ── Upload Section ─────────────────────────────────────────
+const UPLOAD_PRODUCTS = PRODUCTS.filter(p => p.hasExcelUpload);
+
 function UploadSection({ onUpload }) {
-  const [medFile, setMedFile] = useState(null);
-  const [rapFile, setRapFile] = useState(null);
+  const [files, setFiles] = useState(() =>
+    Object.fromEntries(UPLOAD_PRODUCTS.map(p => [p.id, null]))
+  );
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
 
   const handleApply = async () => {
-    if (!medFile && !rapFile) { setMsg('파일을 먼저 선택해주세요.'); return; }
+    if (!UPLOAD_PRODUCTS.some(p => files[p.id])) { setMsg('파일을 먼저 선택해주세요.'); return; }
     setLoading(true); setMsg('');
     try {
       const results = {};
-      if (medFile) results.mediquet = await parseExcelStocks(medFile);
-      if (rapFile) results.rapband  = await parseExcelStocks(rapFile);
+      for (const prod of UPLOAD_PRODUCTS) {
+        if (files[prod.id]) results[prod.id] = await parseExcelStocks(files[prod.id], prod);
+      }
       onUpload(results);
       setMsg('✅ 재고 자동 업데이트 완료 (전산 + 오차 적용)');
     } catch (e) {
@@ -107,15 +106,14 @@ function UploadSection({ onUpload }) {
       <h2 className={styles.uploadTitle}>엑셀 파일 업로드</h2>
       <p className={styles.uploadDesc}>업로드하면 전산재고 + 오차값으로 창고재고를 자동 계산합니다.</p>
       <div className={styles.uploadRow}>
-        {[
-          { key: 'med', label: 'Mediquet', color: '#e74c3c', file: medFile, set: setMedFile },
-          { key: 'rap', label: 'Rapband',  color: '#2980b9', file: rapFile, set: setRapFile },
-        ].map(({ key, label, color, file, set }) => (
-          <label key={key} className={styles.fileLabel}>
-            <span className={styles.prodTag} style={{ background: color }}>{label}</span>
-            <input type="file" accept=".xlsx,.xls" className={styles.fileInput}
-              onChange={(e) => set(e.target.files[0] || null)} />
-            <span className={styles.fileName}>{file ? file.name : '파일 선택'}</span>
+        {UPLOAD_PRODUCTS.map(prod => (
+          <label key={prod.id} className={styles.fileLabel}>
+            <span className={styles.prodTag} style={{ background: prod.color }}>{prod.name}</span>
+            <input
+              type="file" accept=".xlsx,.xls" className={styles.fileInput}
+              onChange={e => setFiles(prev => ({ ...prev, [prod.id]: e.target.files[0] || null }))}
+            />
+            <span className={styles.fileName}>{files[prod.id] ? files[prod.id].name : '파일 선택'}</span>
           </label>
         ))}
       </div>
@@ -133,33 +131,31 @@ function OchaPanel({ ocha, onChange, onReset }) {
 
   return (
     <div className={styles.ochaBox}>
-      <button className={styles.ochaToggle} onClick={() => setOpen((v) => !v)}>
+      <button className={styles.ochaToggle} onClick={() => setOpen(v => !v)}>
         <span>⚙️ 오차 설정</span>
         <span className={styles.ochaToggleHint}>
           {open ? '접기 ▲' : '창고재고 − 전산재고 값 편집 ▼'}
         </span>
       </button>
-
       {open && (
         <div className={styles.ochaBody}>
           <p className={styles.ochaDesc}>
             오차 = 창고 실재고 − 전산 재고량. 엑셀 업로드 시 <strong>창고재고 = 전산 + 오차</strong>로 자동 계산됩니다.
           </p>
           <div className={styles.ochaGrid}>
-            {PRODUCTS.map((product) => (
-              <div key={product} className={styles.ochaProduct}>
-                <div className={styles.ochaProductLabel}
-                  style={{ borderColor: product === 'mediquet' ? '#e74c3c' : '#2980b9' }}>
-                  {product === 'mediquet' ? 'Mediquet' : 'Rapband'}
+            {CALCULATED_PRODUCTS.map(prod => (
+              <div key={prod.id} className={styles.ochaProduct}>
+                <div className={styles.ochaProductLabel} style={{ borderColor: prod.color }}>
+                  {prod.name}
                 </div>
                 <div className={styles.ochaRow}>
-                  {SIZES.map((size) => (
-                    <div key={size} className={styles.ochaItem}>
-                      <SizeChip size={size} small />
+                  {prod.sizes.map(sz => (
+                    <div key={sz.id} className={styles.ochaItem}>
+                      <SizeChip sizeObj={sz} small />
                       <input
                         type="number"
-                        value={ocha[product][size]}
-                        onChange={(e) => onChange(product, size, Number(e.target.value))}
+                        value={ocha[prod.id]?.[sz.id] ?? 0}
+                        onChange={e => onChange(prod.id, sz.id, Number(e.target.value))}
                         className={styles.ochaInput}
                       />
                     </div>
@@ -168,24 +164,20 @@ function OchaPanel({ ocha, onChange, onReset }) {
               </div>
             ))}
           </div>
-          <button className={styles.ochaResetBtn} onClick={onReset}>
-            기본값으로 초기화
-          </button>
+          <button className={styles.ochaResetBtn} onClick={onReset}>기본값으로 초기화</button>
         </div>
       )}
     </div>
   );
 }
 
-// ── Stocking Section ──────────────────────────────────────
-const STOCKING_SIZES = ['L', 'XL'];
-
-function StockingSection({ stocking, onChange }) {
-  const hasOrder = STOCKING_SIZES.some((s) => stocking[s] > 0);
+// ── Manual Product Section (수기 발주 — e.g. 스타킹) ─────
+function ManualProductSection({ product, orders, onChange }) {
+  const hasOrder = product.sizes.some(sz => (orders[sz.id] || 0) > 0);
   return (
     <div className={styles.section}>
-      <h2 className={styles.sectionTitle} style={{ borderLeftColor: '#8e44ad' }}>
-        스타킹
+      <h2 className={styles.sectionTitle} style={{ borderLeftColor: product.color }}>
+        {product.name}
       </h2>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -197,32 +189,31 @@ function StockingSection({ stocking, onChange }) {
             </tr>
           </thead>
           <tbody>
-            {STOCKING_SIZES.map((size) => (
-              <tr key={size} className={stocking[size] > 0 ? styles.needOrder : ''}>
-                <td>
-                  <span className={styles.stockingChip}>{size}</span>
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    min="0"
-                    value={stocking[size]}
-                    onChange={(e) => onChange(size, Number(e.target.value))}
-                    className={styles.stockInput}
-                  />
-                </td>
-                <td className={`${styles.num} ${stocking[size] > 0 ? styles.bold : ''}`}>
-                  {stocking[size] > 0 ? `${stocking[size]}개` : '—'}
-                </td>
-              </tr>
-            ))}
+            {product.sizes.map(sz => {
+              const qty = orders[sz.id] || 0;
+              return (
+                <tr key={sz.id} className={qty > 0 ? styles.needOrder : ''}>
+                  <td><SizeChip sizeObj={sz} /></td>
+                  <td>
+                    <input
+                      type="number" min="0" value={qty}
+                      onChange={e => onChange(product.id, sz.id, Number(e.target.value))}
+                      className={styles.stockInput}
+                    />
+                  </td>
+                  <td className={`${styles.num} ${qty > 0 ? styles.bold : ''}`}>
+                    {qty > 0 ? `${qty}개` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
           {hasOrder && (
             <tfoot>
               <tr className={styles.totalRow}>
                 <td colSpan={2}>총 발주량</td>
                 <td className={styles.num}>
-                  {STOCKING_SIZES.reduce((s, sz) => s + stocking[sz], 0)}개
+                  {product.sizes.reduce((s, sz) => s + (orders[sz.id] || 0), 0)}개
                 </td>
               </tr>
             </tfoot>
@@ -233,39 +224,34 @@ function StockingSection({ stocking, onChange }) {
   );
 }
 
-// ── Product Table ──────────────────────────────────────────
-function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments, onStockChange, onAdjust, onResetAdj }) {
-  const rows = items.map((item) => {
-    const stock = stocks[item.size] ?? item.default_stock;
-    const { shortage, packs } = calcOrder(item.avg_monthly, stock);
-    const adjDelta  = adjustments[item.size] || 0;
+// ── Product Table (calculated products) ───────────────────
+function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChange, onAdjust, onResetAdj }) {
+  const monthKeys = product.sizes[0]?.monthly ? Object.keys(product.sizes[0].monthly) : [];
+
+  const rows = product.sizes.map(sz => {
+    const stock      = stocks[sz.id] ?? sz.default_stock;
+    const { shortage, packs } = calcOrder(sz.avg_monthly, stock);
+    const adjDelta   = adjustments[sz.id] || 0;
     const finalPacks = Math.max(0, packs + adjDelta);
     const finalQty   = finalPacks * PACK_SIZE;
-    const jsVal      = jeonsan[item.size];
-    const ochaVal    = ocha[item.size] ?? 0;
-    return { ...item, stock, shortage, basePacks: packs, finalPacks, finalQty, jeonsan: jsVal, ocha: ochaVal };
+    const jsVal      = jeonsan[sz.id];
+    const ochaVal    = ocha[sz.id] ?? 0;
+    return { ...sz, stock, shortage, basePacks: packs, finalPacks, finalQty, jeonsan: jsVal, ocha: ochaVal };
   });
 
   const totalPacks = rows.reduce((s, r) => s + r.finalPacks, 0);
   const totalBoxes = Math.floor(totalPacks / 2);
-  const totalQty   = rows.reduce((s, r) => s + r.finalQty, 0);
   const isOdd      = totalPacks > 0 && totalPacks % 2 !== 0;
-  const hasAdj     = SIZES.some((s) => (adjustments[s] || 0) !== 0);
+  const hasAdj     = product.sizes.some(sz => (adjustments[sz.id] || 0) !== 0);
 
-  const orderedRows   = rows.filter((r) => r.finalPacks > 0);
-  const biggestRow    = orderedRows.length
-    ? orderedRows.reduce((a, b) => b.finalPacks > a.finalPacks ? b : a)
-    : null;
-  const borderlineRow = orderedRows.length
-    ? orderedRows.reduce((a, b) => (a.shortage || 0) <= (b.shortage || 0) ? a : b)
-    : null;
-
-  const displayTitle = title === 'mediquet' ? 'Mediquet' : 'Rapband';
+  const orderedRows   = rows.filter(r => r.finalPacks > 0);
+  const biggestRow    = orderedRows.length ? orderedRows.reduce((a, b) => b.finalPacks > a.finalPacks ? b : a) : null;
+  const borderlineRow = orderedRows.length ? orderedRows.reduce((a, b) => (a.shortage || 0) <= (b.shortage || 0) ? a : b) : null;
 
   return (
     <div className={styles.section}>
-      <h2 className={styles.sectionTitle} style={{ borderLeftColor: color }}>
-        {displayTitle}
+      <h2 className={styles.sectionTitle} style={{ borderLeftColor: product.color }}>
+        {product.name}
       </h2>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -276,7 +262,12 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
               <th><span className={styles.thSub}>전산 / 오차</span></th>
               <th>월평균<br />사용량</th>
               <th>적정재고<br />(1배수)</th>
-              <th>월별 사용량<br /><span className={styles.small}>3월 / 4월 / 5월</span></th>
+              <th>
+                월별 사용량<br />
+                <span className={styles.small}>
+                  {monthKeys.map(k => k.split('-')[1].replace(/^0/, '') + '월').join(' / ')}
+                </span>
+              </th>
               <th>부족량</th>
               <th>발주수량<br /><span className={styles.small}>(30개 단위)</span></th>
               <th>팩수</th>
@@ -284,16 +275,16 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
-              const adjDelta   = adjustments[row.size] || 0;
+            {rows.map(row => {
+              const adjDelta   = adjustments[row.id] || 0;
               const isAdjusted = adjDelta !== 0;
               return (
-                <tr key={row.size} className={row.finalPacks > 0 ? styles.needOrder : ''}>
-                  <td><SizeChip size={row.size} /></td>
+                <tr key={row.id} className={row.finalPacks > 0 ? styles.needOrder : ''}>
+                  <td><SizeChip sizeObj={row} /></td>
                   <td>
                     <input
                       type="number" min="0" value={row.stock}
-                      onChange={(e) => onStockChange(row.size, Number(e.target.value))}
+                      onChange={e => onStockChange(row.id, Number(e.target.value))}
                       className={styles.stockInput}
                     />
                   </td>
@@ -310,7 +301,7 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
                   <td className={styles.num}>{row.avg_monthly}</td>
                   <td className={styles.num}>{Math.ceil(row.avg_monthly)}</td>
                   <td className={styles.monthCell}>
-                    {row.monthly['2026-03']} / {row.monthly['2026-04']} / {row.monthly['2026-05']}
+                    {monthKeys.map(k => row.monthly[k]).join(' / ')}
                   </td>
                   <td className={`${styles.num} ${row.shortage > 0 ? styles.red : styles.greenTxt}`}>
                     {row.shortage > 0 ? `+${row.shortage}` : '충분'}
@@ -346,11 +337,11 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
               <td className={styles.num}>{totalBoxes > 0 ? `${totalBoxes}박스` : '—'}</td>
             </tr>
             <tr className={styles.boxRow}>
-              <td colSpan={9}>{displayTitle} 총 박스 수</td>
+              <td colSpan={9}>{product.name} 총 박스 수</td>
               <td className={styles.num}>
                 <span
                   className={`${styles.boxBadge} ${isOdd ? styles.boxBadgeOdd : ''}`}
-                  style={isOdd ? undefined : { background: color }}
+                  style={isOdd ? undefined : { background: product.color }}
                 >
                   {isOdd ? `${totalBoxes}+½` : `${totalBoxes}박스`}
                 </span>
@@ -360,7 +351,6 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
         </table>
       </div>
 
-      {/* 홀수 팩 조정 패널 */}
       {isOdd && (
         <div className={styles.oddPanel}>
           <p className={styles.oddTitle}>
@@ -368,18 +358,18 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
           </p>
           <div className={styles.oddBtns}>
             {biggestRow && (
-              <button className={styles.oddBtnReduce} onClick={() => onAdjust(biggestRow.size, -1)}>
+              <button className={styles.oddBtnReduce} onClick={() => onAdjust(biggestRow.id, -1)}>
                 <span className={styles.oddBtnLabel}>줄이기</span>
-                <SizeChip size={biggestRow.size} small />
+                <SizeChip sizeObj={biggestRow} small />
                 <span className={styles.oddBtnDetail}>
                   1팩↓ → {totalPacks - 1}팩 = <strong>{(totalPacks - 1) / 2}박스</strong>
                 </span>
               </button>
             )}
             {borderlineRow && (
-              <button className={styles.oddBtnAdd} onClick={() => onAdjust(borderlineRow.size, 1)}>
+              <button className={styles.oddBtnAdd} onClick={() => onAdjust(borderlineRow.id, 1)}>
                 <span className={styles.oddBtnLabel}>늘리기</span>
-                <SizeChip size={borderlineRow.size} small />
+                <SizeChip sizeObj={borderlineRow} small />
                 <span className={styles.oddBtnDetail}>
                   1팩↑ → {totalPacks + 1}팩 = <strong>{(totalPacks + 1) / 2}박스</strong>
                 </span>
@@ -389,13 +379,12 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
         </div>
       )}
 
-      {/* 조정 적용 중 표시 */}
       {!isOdd && hasAdj && (
         <div className={styles.adjApplied}>
           <span>조정 적용됨:</span>
-          {SIZES.filter((s) => (adjustments[s] || 0) !== 0).map((s) => (
-            <span key={s} className={styles.adjAppliedTag}>
-              {SIZE_LABELS[s]} {adjustments[s] > 0 ? `+${adjustments[s]}팩` : `${adjustments[s]}팩`}
+          {product.sizes.filter(sz => (adjustments[sz.id] || 0) !== 0).map(sz => (
+            <span key={sz.id} className={styles.adjAppliedTag}>
+              {sz.label} {adjustments[sz.id] > 0 ? `+${adjustments[sz.id]}팩` : `${adjustments[sz.id]}팩`}
             </span>
           ))}
           <button className={styles.adjCancelBtn} onClick={onResetAdj}>취소</button>
@@ -407,24 +396,25 @@ function ProductTable({ title, color, items, stocks, jeonsan, ocha, adjustments,
 
 // ── Main Page ──────────────────────────────────────────────
 export default function Home() {
-  const [stocks,      setStocks]      = useState(defaultStocks);
-  const [jeonsan,     setJeonsan]     = useState(defaultJeonsan);
-  const [adjustments, setAdjustments] = useState(defaultAdj);
-  const [ocha,        setOcha]        = useState(defaultOcha);
-  const [stocking,    setStocking]    = useState(defaultStocking);
-  const [hydrated,    setHydrated]    = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [stocks,       setStocks]       = useState(defaultStocks);
+  const [jeonsan,      setJeonsan]      = useState(defaultJeonsan);
+  const [adjustments,  setAdjustments]  = useState(defaultAdj);
+  const [ocha,         setOcha]         = useState(defaultOcha);
+  const [manualOrders, setManualOrders] = useState(defaultManualOrders);
+  const [hydrated,     setHydrated]     = useState(false);
+  const [downloading,  setDownloading]  = useState(false);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(LS_KEY);
       if (saved) {
         const p = JSON.parse(saved);
-        if (p.stocks)      setStocks(p.stocks);
-        if (p.jeonsan)     setJeonsan(p.jeonsan);
-        if (p.adjustments) setAdjustments(p.adjustments);
-        if (p.ocha)        setOcha(p.ocha);
-        if (p.stocking)    setStocking(p.stocking);
+        if (p.stocks)       setStocks(p.stocks);
+        if (p.jeonsan)      setJeonsan(p.jeonsan);
+        if (p.adjustments)  setAdjustments(p.adjustments);
+        if (p.ocha)         setOcha(p.ocha);
+        if (p.manualOrders) setManualOrders(p.manualOrders);
+        else if (p.stocking) setManualOrders(prev => ({ ...prev, stocking: p.stocking }));
       }
     } catch {}
     setHydrated(true);
@@ -432,73 +422,80 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha, stocking }));
-  }, [stocks, jeonsan, adjustments, ocha, hydrated]);
+    localStorage.setItem(LS_KEY, JSON.stringify({ stocks, jeonsan, adjustments, ocha, manualOrders }));
+  }, [stocks, jeonsan, adjustments, ocha, manualOrders, hydrated]);
 
-  const resetProductAdj = useCallback((product) => {
-    setAdjustments((prev) => ({ ...prev, [product]: { M1: 0, M2: 0, L: 0, XL: 0 } }));
-  }, []);
-
-  const handleStockChange = useCallback((product, size, val) => {
-    setStocks((prev) => ({ ...prev, [product]: { ...prev[product], [size]: val } }));
-    resetProductAdj(product);
-  }, [resetProductAdj]);
-
-  const handleAdjust = useCallback((product, size, delta) => {
-    setAdjustments((prev) => ({
+  const resetProductAdj = useCallback((productId) => {
+    const prod = CALCULATED_PRODUCTS.find(p => p.id === productId);
+    setAdjustments(prev => ({
       ...prev,
-      [product]: { ...prev[product], [size]: (prev[product][size] || 0) + delta },
+      [productId]: Object.fromEntries(prod.sizes.map(s => [s.id, 0])),
     }));
   }, []);
 
-  const handleOchaChange = useCallback((product, size, val) => {
-    setOcha((prev) => ({ ...prev, [product]: { ...prev[product], [size]: val } }));
+  const handleStockChange = useCallback((productId, sizeId, val) => {
+    setStocks(prev => ({ ...prev, [productId]: { ...prev[productId], [sizeId]: val } }));
+    resetProductAdj(productId);
+  }, [resetProductAdj]);
+
+  const handleAdjust = useCallback((productId, sizeId, delta) => {
+    setAdjustments(prev => ({
+      ...prev,
+      [productId]: { ...prev[productId], [sizeId]: (prev[productId][sizeId] || 0) + delta },
+    }));
   }, []);
 
-  const handleOchaReset = useCallback(() => {
-    setOcha(defaultOcha());
+  const handleOchaChange = useCallback((productId, sizeId, val) => {
+    setOcha(prev => ({ ...prev, [productId]: { ...prev[productId], [sizeId]: val } }));
   }, []);
+
+  const handleOchaReset = useCallback(() => { setOcha(defaultOcha()); }, []);
 
   const handleUpload = useCallback((results) => {
-    setStocks((prev) => {
+    setStocks(prev => {
       const next = { ...prev };
-      for (const [product, jsMap] of Object.entries(results)) {
-        next[product] = { ...next[product] };
-        for (const [size, jsVal] of Object.entries(jsMap)) {
-          next[product][size] = jsVal + (ocha[product]?.[size] ?? 0);
+      for (const [productId, jsMap] of Object.entries(results)) {
+        next[productId] = { ...next[productId] };
+        for (const [sizeId, jsVal] of Object.entries(jsMap)) {
+          next[productId][sizeId] = jsVal + (ocha[productId]?.[sizeId] ?? 0);
         }
       }
       return next;
     });
-    setJeonsan((prev) => {
+    setJeonsan(prev => {
       const next = { ...prev };
-      for (const [product, jsMap] of Object.entries(results)) {
-        next[product] = { ...next[product], ...jsMap };
+      for (const [productId, jsMap] of Object.entries(results)) {
+        next[productId] = { ...next[productId], ...jsMap };
       }
       return next;
     });
     setAdjustments(defaultAdj());
   }, [ocha]);
 
+  const handleManualOrderChange = useCallback((productId, sizeId, val) => {
+    setManualOrders(prev => ({ ...prev, [productId]: { ...prev[productId], [sizeId]: val } }));
+  }, []);
+
   const handleDownload = async () => {
     setDownloading(true);
     try {
       const orders = [];
-      for (const product of PRODUCTS) {
-        for (const item of USAGE_DATA[product]) {
-          const stock = stocks[product][item.size] ?? item.default_stock;
-          const { packs: base } = calcOrder(item.avg_monthly, stock);
-          const adj = adjustments[product][item.size] || 0;
+      for (const prod of CALCULATED_PRODUCTS) {
+        for (const sz of prod.sizes) {
+          const stock = stocks[prod.id][sz.id] ?? sz.default_stock;
+          const { packs: base } = calcOrder(sz.avg_monthly, stock);
+          const adj = adjustments[prod.id]?.[sz.id] || 0;
           const finalPacks = Math.max(0, base + adj);
           const qty = finalPacks * PACK_SIZE;
-          if (qty > 0) orders.push({ product, size: item.size, qty });
+          if (qty > 0) orders.push({ product: prod.id, size: sz.id, qty });
         }
       }
-
-      // 스타킹
-      STOCKING_SIZES.forEach((size) => {
-        if (stocking[size] > 0) orders.push({ product: 'stocking', size, qty: stocking[size] });
-      });
+      for (const prod of MANUAL_PRODUCTS) {
+        for (const sz of prod.sizes) {
+          const qty = manualOrders[prod.id]?.[sz.id] || 0;
+          if (qty > 0) orders.push({ product: prod.id, size: sz.id, qty });
+        }
+      }
 
       if (orders.length === 0) {
         alert('발주할 항목이 없습니다.');
@@ -511,12 +508,11 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orders }),
       });
-
       if (!res.ok) throw new Error('서버 오류 ' + res.status);
 
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
       const today = new Date();
       const ds = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
       a.href = url;
@@ -531,31 +527,26 @@ export default function Home() {
     setDownloading(false);
   };
 
-  const handleStockingChange = useCallback((size, val) => {
-    setStocking((prev) => ({ ...prev, [size]: val }));
-  }, []);
-
   const handleReset = () => {
     setStocks(defaultStocks());
     setJeonsan(defaultJeonsan());
     setAdjustments(defaultAdj());
     setOcha(defaultOcha());
-    setStocking(defaultStocking());
+    setManualOrders(defaultManualOrders());
   };
 
-  const calcTotalBoxes = (product) => {
-    const packs = USAGE_DATA[product].reduce((s, item) => {
-      const stock = stocks[product][item.size] ?? item.default_stock;
-      const { packs: base } = calcOrder(item.avg_monthly, stock);
-      const adj = adjustments[product][item.size] || 0;
+  const calcTotalBoxes = (prod) => {
+    const packs = prod.sizes.reduce((s, sz) => {
+      const stock = stocks[prod.id][sz.id] ?? sz.default_stock;
+      const { packs: base } = calcOrder(sz.avg_monthly, stock);
+      const adj = adjustments[prod.id]?.[sz.id] || 0;
       return s + Math.max(0, base + adj);
     }, 0);
     return Math.floor(packs / 2);
   };
 
-  const medBoxes   = calcTotalBoxes('mediquet');
-  const rapBoxes   = calcTotalBoxes('rapband');
-  const grandTotal = medBoxes + rapBoxes;
+  const boxesByProduct = Object.fromEntries(CALCULATED_PRODUCTS.map(p => [p.id, calcTotalBoxes(p)]));
+  const grandTotal = Object.values(boxesByProduct).reduce((s, b) => s + b, 0);
   const meetsMin   = grandTotal >= FREE_SHIP_BOXES;
 
   if (!hydrated) return null;
@@ -578,41 +569,42 @@ export default function Home() {
         <main className={styles.main}>
           <UploadSection onUpload={handleUpload} />
 
-          <OchaPanel
-            ocha={ocha}
-            onChange={handleOchaChange}
-            onReset={handleOchaReset}
-          />
+          <OchaPanel ocha={ocha} onChange={handleOchaChange} onReset={handleOchaReset} />
 
-          {PRODUCTS.map((product) => (
+          {CALCULATED_PRODUCTS.map(prod => (
             <ProductTable
-              key={product}
-              title={product}
-              color={product === 'mediquet' ? '#e74c3c' : '#2980b9'}
-              items={USAGE_DATA[product]}
-              stocks={stocks[product]}
-              jeonsan={jeonsan[product]}
-              ocha={ocha[product]}
-              adjustments={adjustments[product]}
-              onStockChange={(size, val) => handleStockChange(product, size, val)}
-              onAdjust={(size, delta) => handleAdjust(product, size, delta)}
-              onResetAdj={() => resetProductAdj(product)}
+              key={prod.id}
+              product={prod}
+              stocks={stocks[prod.id]}
+              jeonsan={jeonsan[prod.id]}
+              ocha={ocha[prod.id]}
+              adjustments={adjustments[prod.id]}
+              onStockChange={(sizeId, val) => handleStockChange(prod.id, sizeId, val)}
+              onAdjust={(sizeId, delta) => handleAdjust(prod.id, sizeId, delta)}
+              onResetAdj={() => resetProductAdj(prod.id)}
             />
           ))}
 
-          <StockingSection stocking={stocking} onChange={handleStockingChange} />
+          {MANUAL_PRODUCTS.map(prod => (
+            <ManualProductSection
+              key={prod.id}
+              product={prod}
+              orders={manualOrders[prod.id] || {}}
+              onChange={handleManualOrderChange}
+            />
+          ))}
 
           <div className={`${styles.summary} ${meetsMin ? styles.summaryOk : styles.summaryWarn}`}>
             <div className={styles.summaryRow}>
-              <div className={styles.summaryBlock}>
-                <span className={styles.summaryLabel}>Mediquet</span>
-                <span className={styles.summaryVal}>{medBoxes}박스</span>
-              </div>
-              <span className={styles.summaryPlus}>+</span>
-              <div className={styles.summaryBlock}>
-                <span className={styles.summaryLabel}>Rapband</span>
-                <span className={styles.summaryVal}>{rapBoxes}박스</span>
-              </div>
+              {CALCULATED_PRODUCTS.map((prod, i) => (
+                <Fragment key={prod.id}>
+                  {i > 0 && <span className={styles.summaryPlus}>+</span>}
+                  <div className={styles.summaryBlock}>
+                    <span className={styles.summaryLabel}>{prod.name}</span>
+                    <span className={styles.summaryVal}>{boxesByProduct[prod.id]}박스</span>
+                  </div>
+                </Fragment>
+              ))}
               <span className={styles.summaryPlus}>=</span>
               <div className={styles.summaryBlock}>
                 <span className={styles.summaryLabel}>총 발주</span>
