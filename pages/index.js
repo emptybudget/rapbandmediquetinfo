@@ -352,6 +352,7 @@ export default function Home() {
   const [adjustments, setAdjustments] = useState(defaultAdj);
   const [ocha,        setOcha]        = useState(defaultOcha);
   const [hydrated,    setHydrated]    = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     try {
@@ -416,6 +417,52 @@ export default function Home() {
     });
     setAdjustments(defaultAdj());
   }, [ocha]);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const orders = [];
+      for (const product of PRODUCTS) {
+        for (const item of USAGE_DATA[product]) {
+          const stock = stocks[product][item.size] ?? item.default_stock;
+          const { packs: base } = calcOrder(item.avg_monthly, stock);
+          const adj = adjustments[product][item.size] || 0;
+          const finalPacks = Math.max(0, base + adj);
+          const qty = finalPacks * PACK_SIZE;
+          if (qty > 0) orders.push({ product, size: item.size, qty });
+        }
+      }
+
+      if (orders.length === 0) {
+        alert('발주할 항목이 없습니다.');
+        setDownloading(false);
+        return;
+      }
+
+      const res = await fetch('/api/generate-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders }),
+      });
+
+      if (!res.ok) throw new Error('서버 오류 ' + res.status);
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const today = new Date();
+      const ds = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
+      a.href = url;
+      a.download = `발주서_${ds}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('다운로드 실패: ' + e.message);
+    }
+    setDownloading(false);
+  };
 
   const handleReset = () => {
     setStocks(defaultStocks());
@@ -504,6 +551,13 @@ export default function Home() {
                   ⚠️ 현재 {grandTotal}박스 — 무료배송까지 <strong>{FREE_SHIP_BOXES - grandTotal}박스</strong> 부족
                 </p>
             }
+            <button
+              onClick={handleDownload}
+              disabled={downloading || grandTotal === 0}
+              className={styles.downloadBtn}
+            >
+              {downloading ? '생성 중...' : '📄 발주서 엑셀 다운로드'}
+            </button>
           </div>
 
           <div className={styles.infoBox}>

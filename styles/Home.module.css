@@ -330,6 +330,23 @@
 .summaryPlus   { font-size: 1.3rem; color: #bbb; }
 .summaryMsg    { text-align: center; margin: 0; font-size: 0.92rem; color: #444; }
 
+.downloadBtn {
+  display: block;
+  margin: 14px auto 0;
+  background: #1a7a4a;
+  color: #fff;
+  border: none;
+  padding: 10px 28px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  transition: background 0.15s;
+}
+.downloadBtn:hover:not(:disabled) { background: #145e38; }
+.downloadBtn:disabled { opacity: 0.45; cursor: default; }
+
 /* ── Info box ─────────────────────────────── */
 .infoBox {
   background: #f0f2f8; border-radius: 8px;
