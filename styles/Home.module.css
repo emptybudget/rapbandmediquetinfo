@@ -536,6 +536,118 @@
 }
 .logClearBtn:hover { background: #f0f2f8; color: #555; }
 
+/* ── Vendor grid (home) ──────────────────── */
+.vendorGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.vendorCard {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  padding: 20px 18px 16px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  text-align: left;
+}
+.vendorCard:hover {
+  border-color: #4a9eff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+}
+
+.vendorCardColor {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 1.1rem;
+}
+
+.vendorCardName {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0 0 4px;
+}
+
+.vendorCardMeta {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+/* ── Vendor detail header ─────────────────── */
+.detailHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 0 4px;
+  flex-wrap: wrap;
+}
+
+.backBtn {
+  background: transparent;
+  border: 1px solid #4a6fa5;
+  color: #4a6fa5;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.backBtn:hover { background: #4a6fa5; color: #fff; }
+
+.detailTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin: 0;
+}
+
+.requesterRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0,0,0,0.06);
+  padding: 10px 16px;
+}
+
+.requesterLabel {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #555;
+  white-space: nowrap;
+}
+
+.requesterInput {
+  flex: 1;
+  max-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid #d0d7e8;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: border-color 0.15s;
+}
+.requesterInput:focus { outline: none; border-color: #4a6fa5; box-shadow: 0 0 0 2px rgba(74,111,165,0.15); }
+
+/* ── Log badge: vendor ────────────────────── */
+.logBadgeVendor {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  background: #2c4a7c;
+  color: #c9d8f5;
+}
+
 /* ── Mobile ──────────────────────────────── */
 @media (max-width: 600px) {
   .title { font-size: 1.2rem; }
