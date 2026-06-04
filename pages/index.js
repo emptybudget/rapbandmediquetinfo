@@ -5,6 +5,17 @@ import {
   PACK_SIZE, FREE_SHIP_BOXES,
 } from '../lib/products';
 import { VENDORS, VENDOR_MAP } from '../lib/vendors';
+
+const SUPPLY_VENDORS = VENDORS.filter(v => v.group === 'supplies');
+const SUPPLIES_CARD  = { id: 'supplies', name: '소모품', color: '#3d5a7a', _isGroup: true };
+const HOME_VENDORS   = VENDORS.reduce((acc, v) => {
+  if (v.group === 'supplies') {
+    if (!acc.some(x => x.id === 'supplies')) acc.push(SUPPLIES_CARD);
+  } else {
+    acc.push(v);
+  }
+  return acc;
+}, []);
 import { MEDYSSEY_SEED } from '../lib/medysseyData';
 import styles from '../styles/Home.module.css';
 
@@ -850,6 +861,15 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
 
 // ─── Vendor home card ─────────────────────────────────────────────────────────
 function VendorCard({ vendor, onClick }) {
+  if (vendor._isGroup) {
+    return (
+      <button className={styles.vendorCard} onClick={onClick}>
+        <div className={styles.vendorCardColor} style={{ background: vendor.color }}>📦</div>
+        <p className={styles.vendorCardName}>{vendor.name}</p>
+        <p className={styles.vendorCardMeta}>{SUPPLY_VENDORS.map(v => v.name).join(' · ')}</p>
+      </button>
+    );
+  }
   const icon = vendor.type === 'history' ? '🔬'
     : vendor.products.some(p => p.type === 'calculated') ? '💊' : '📦';
   const meta = vendor.type === 'history'
@@ -868,6 +888,7 @@ function VendorCard({ vendor, onClick }) {
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function Home() {
   const [activeVendorId, setActiveVendorId] = useState(null);
+  const [activeSupplyVendorId, setActiveSupplyVendorId] = useState(null);
   const [hydrated, setHydrated] = useState(false);
   const [orderLog, setOrderLog] = useState([]);
   const [requester, setRequester] = useState('');
@@ -1141,7 +1162,9 @@ export default function Home() {
     setDownloading(false);
   };
 
-  const activeVendor = activeVendorId ? VENDOR_MAP[activeVendorId] : null;
+  const inSupplies  = activeVendorId === 'supplies';
+  const activeVendor = (activeVendorId && !inSupplies) ? VENDOR_MAP[activeVendorId] : null;
+  const activeSupply = inSupplies && activeSupplyVendorId ? VENDOR_MAP[activeSupplyVendorId] : null;
 
   // Summary for repmedicare
   const boxesByProduct = Object.fromEntries(CALCULATED_PRODUCTS.map(p => [p.id, calcTotalBoxes(p)]));
@@ -1161,13 +1184,13 @@ export default function Home() {
       <div className={styles.page}>
         <header className={styles.header}>
           <h1 className={styles.title}>
-            {activeVendor ? activeVendor.name + ' 발주' : '발주 관리'}
+            {activeVendor ? activeVendor.name + ' 발주' : inSupplies ? '소모품 발주' : '발주 관리'}
           </h1>
           <p className={styles.subtitle}>
-            {activeVendor ? '← 홈으로 돌아가려면 뒤로가기 버튼을 누르세요' : '업체별 발주서 통합 관리'}
+            {(activeVendor || inSupplies) ? '← 홈으로 돌아가려면 뒤로가기 버튼을 누르세요' : '업체별 발주서 통합 관리'}
           </p>
-          {activeVendor && (
-            <button onClick={() => setActiveVendorId(null)} className={styles.resetBtn}>← 업체 목록</button>
+          {(activeVendor || inSupplies) && (
+            <button onClick={() => { setActiveVendorId(null); setActiveSupplyVendorId(null); }} className={styles.resetBtn}>← 업체 목록</button>
           )}
         </header>
 
@@ -1178,8 +1201,8 @@ export default function Home() {
               <div className={styles.section} style={{ padding: '18px 20px' }}>
                 <p style={{ margin: '0 0 14px', fontSize: '0.9rem', color: '#555', fontWeight: 600 }}>업체 선택</p>
                 <div className={styles.vendorGrid}>
-                  {VENDORS.map(v => (
-                    <VendorCard key={v.id} vendor={v} onClick={() => setActiveVendorId(v.id)} />
+                  {HOME_VENDORS.map(v => (
+                    <VendorCard key={v.id} vendor={v} onClick={() => { setActiveVendorId(v.id); setActiveSupplyVendorId(null); }} />
                   ))}
                 </div>
               </div>
@@ -1194,7 +1217,7 @@ export default function Home() {
           )}
 
           {/* ── VENDOR DETAIL ── */}
-          {activeVendor && (
+          {(activeVendor || inSupplies) && (
             <>
               {/* Requester row */}
               <div className={styles.requesterRow}>
@@ -1208,8 +1231,41 @@ export default function Home() {
                 />
               </div>
 
+              {/* ── 소모품 (grouped vendors) ── */}
+              {inSupplies && (
+                <div className={styles.section}>
+                  <div style={{ display: 'flex', gap: 8, padding: '14px 20px 10px', flexWrap: 'wrap' }}>
+                    {SUPPLY_VENDORS.map(v => (
+                      <button key={v.id} onClick={() => setActiveSupplyVendorId(v.id)}
+                        style={{ padding: '9px 18px', borderRadius: 10, border: '2px solid ' + (activeSupplyVendorId === v.id ? v.color : '#dde3f0'), background: activeSupplyVendorId === v.id ? v.color : '#fff', color: activeSupplyVendorId === v.id ? '#fff' : '#333', fontWeight: 700, fontSize: 14, cursor: 'pointer', transition: 'all .15s' }}>
+                        {v.name}
+                      </button>
+                    ))}
+                  </div>
+                  {activeSupply ? (
+                    <>
+                      {activeSupply.products.map(prod => (
+                        <ManualProductSection
+                          key={prod.id}
+                          product={prod}
+                          orders={(vendorDrafts[activeSupply.id] || {})[prod.id] || {}}
+                          onChange={(pid, sid, val) => handleVendorDraftChange(activeSupply.id, pid, sid, val)}
+                        />
+                      ))}
+                      <div className={styles.summary} style={{ background: '#fff', border: '1px solid #dde3f0' }}>
+                        <button onClick={() => handleVendorDownload(activeSupply)} disabled={downloading} className={styles.downloadBtn} style={{ margin: 0 }}>
+                          {downloading ? '생성 중...' : '📄 발주서 엑셀 다운로드'}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ padding: '30px 20px', color: '#aaa', textAlign: 'center', fontSize: 14 }}>위에서 업체를 선택하세요</div>
+                  )}
+                </div>
+              )}
+
               {/* ── Medyssey (history type) ── */}
-              {activeVendor.type === 'history' && (
+              {activeVendor?.type === 'history' && (
                 <div className={styles.section}>
                   <MedysseyTab
                     adds={medysseyAdds}
@@ -1226,7 +1282,7 @@ export default function Home() {
               )}
 
               {/* ── Standard vendors (calculated + manual) ── */}
-              {activeVendor.type !== 'history' && (() => {
+              {activeVendor && activeVendor.type !== 'history' && (() => {
                 const calcProds = activeVendor.products.filter(p => p.type === 'calculated');
                 const manualProds = activeVendor.products.filter(p => p.type === 'manual');
                 const isRepmed = activeVendor.id === 'repmedicare';
