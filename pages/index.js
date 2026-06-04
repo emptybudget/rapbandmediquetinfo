@@ -526,7 +526,7 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
       displayName = /iliad/i.test(name) ? 'ILIAD Rod Connector' : 'Rod Connector';
     } else if (isMIS && isRod) {
       displayName = 'Rod';
-      typeLabel   = /cov/i.test(name) ? 'Curved COV' : 'Straight';
+      typeLabel   = /cov/i.test(name) ? 'Curved' : 'Straight';
     } else {
       displayName = name;
     }
@@ -548,7 +548,7 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
   return [...merged.entries()].map(([name, entry]) => {
     if (entry.types) {
       const types = entry.types
-        .sort((a, b) => a.label === 'Straight' ? -1 : b.label === 'Straight' ? 1 : 0)
+        .sort((a, b) => a.label === 'Curved' ? -1 : b.label === 'Curved' ? 1 : 0)
         .map(t => ({ ...t, sizes: t.sizes.sort((a, b) => (a.size||'').localeCompare(b.size||'', undefined, { numeric: true, sensitivity: 'base' })) }));
       return { name, types, w: entry.w };
     }
