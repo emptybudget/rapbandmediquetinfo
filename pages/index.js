@@ -482,6 +482,33 @@ function MBigStepper({ qty, onSet }) {
   );
 }
 
+// 볼트·로드·커넥터류는 기구 목록에서 제외하고 스크루 화면 내에 표시
+function isAccessoryInstrument(name) {
+  return /bolt|rod|connector/i.test(name) && !/screw|poly|mono|iliac/i.test(name);
+}
+
+// 선택된 스크루 계통에 맞는 부속품만 반환 (Zenius↔ILIAD 분리)
+function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
+  const isZenius = /zenius/i.test(instName);
+  const isILIAD  = /iliad/i.test(instName);
+
+  return Object.entries(hospitalData)
+    .filter(([name]) => isAccessoryInstrument(name))
+    .filter(([name]) => {
+      if (isZenius) return !/iliad/i.test(name);
+      if (isILIAD)  return /iliad/i.test(name) || !/zenius/i.test(name);
+      return true;
+    })
+    .map(([name, v]) => {
+      const us = (userSz[hosp + '||' + name] || []);
+      const usSet = new Set(us);
+      const extra = us.map(s => ({ size: s, last: null, _user: true }));
+      const sizes = [...extra, ...v.sizes.filter(s => !usSet.has(s.size))];
+      return { name, sizes, w: v.w };
+    })
+    .sort((a, b) => b.w - a.w);
+}
+
 function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownload, downloading, requester }) {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -529,9 +556,9 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
   const instList = useMemo(() => {
     if (!hosp) return [];
     const baseData = MEDYSSEY_SEED.hospitals[hosp] || {};
-    const base = Object.entries(baseData).map(([name, v]) => ({ name, sizes: v.sizes, w: v.w }));
+    const base = Object.entries(baseData).filter(([name]) => !isAccessoryInstrument(name)).map(([name, v]) => ({ name, sizes: v.sizes, w: v.w }));
     const baseNames = new Set(base.map(b => b.name));
-    const extra = (userInst[hosp] || []).filter(n => !baseNames.has(n)).map(name => ({ name, sizes: [], w: Infinity, _user: true }));
+    const extra = (userInst[hosp] || []).filter(n => !baseNames.has(n) && !isAccessoryInstrument(n)).map(name => ({ name, sizes: [], w: Infinity, _user: true }));
     return [...extra, ...base].filter(i => i.name.toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.w - a.w);
   }, [hosp, q, userInst]);
 
@@ -544,6 +571,11 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
     const extra = us.map(size => ({ size, last: null, _user: true }));
     return [...extra, ...base.filter(s => !usSet.has(s.size))];
   }, [hosp, inst, userSize]);
+
+  const accessories = useMemo(() => {
+    if (!inst || !hosp) return [];
+    return getRelevantAccessories(inst, MEDYSSEY_SEED.hospitals[hosp] || {}, userSize, hosp);
+  }, [inst, hosp, userSize]);
 
   const keyOf = (i, s) => i + '||' + s;
   const getQty = (i, s) => cart[keyOf(i, s)]?.qty || 0;
@@ -659,6 +691,30 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
               })}
               {sizes.length === 0 && <MEmpty>사양이 없어요 — 아래에서 직접 추가하세요</MEmpty>}
             </div>
+            {accessories.length > 0 && (
+              <div style={{ marginTop: 20, borderTop: '2px dashed ' + MC.line, paddingTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: MC.sub, marginBottom: 12 }}>🔩 함께 발주</div>
+                {accessories.map(acc => (
+                  <div key={acc.name} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: MC.ink, marginBottom: 6, fontFamily: mMono }}>{acc.name}</div>
+                    <div style={{ display: 'grid', gap: 7 }}>
+                      {acc.sizes.map(s => {
+                        const qty = getQty(acc.name, s.size);
+                        return (
+                          <div key={s.size || '_'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card }}>
+                            <div>
+                              <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 14 }}>{s.size || '단일'}</div>
+                              {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub }}>{mMonthsAgo(s.last)}</div>}
+                            </div>
+                            <MBigStepper qty={qty} onSet={n => setQty(acc.name, s.size, n)} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <MAddBox value={newSize} setValue={setNewSize} onAdd={addSize} placeholder="목록에 없는 사양 직접 입력 (예: 6.5*55)" label="사양 추가" />
           </MSection>
         )}
