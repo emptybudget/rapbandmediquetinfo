@@ -665,7 +665,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
   };
 
   const goHosp = h => { setHosp(h); setInst(null); setQ(''); setStep(1); };
-  const goInst = i => { setInst(i); setNewSize(''); setStep(2); };
+  const goInst = i => { setInst(i); setStep(2); };
 
   const addInst = () => {
     const n = newInst.trim();
