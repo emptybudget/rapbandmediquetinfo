@@ -520,6 +520,8 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
       if (/iliad/i.test(name)) continue;
     }
     if (isMIS && isRod && !/mis/i.test(name)) continue;
+    // 볼트는 "Bolt" / "ILIAD Bolt" 하나만 사용, 나머지 변형 제외
+    if (/bolt/i.test(name) && !/^(iliad\s+)?bolt$/i.test(name)) continue;
 
     let displayName, typeLabel = null;
     if (isConn) {
