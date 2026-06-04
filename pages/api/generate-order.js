@@ -35,7 +35,7 @@ function fillSheet(ws, rows, template, vendor, requester, cols, note) {
   if (dateCell) ws.getCell(dateCell).value = new Date();
   if (reqCell && requester) ws.getCell(reqCell).value = requester;
   if (recCell) ws.getCell(recCell).value = vendor.name;
-  if (noteCell && note) ws.getCell(noteCell).value = note;
+  if (noteCell) ws.getCell(noteCell).value = note || null;
 
   // Clear item rows
   for (let r = startRow; r <= endRow; r++) {

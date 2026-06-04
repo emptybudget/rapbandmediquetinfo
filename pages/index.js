@@ -818,7 +818,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
             <div style={{ padding: '12px 20px', borderTop: '1px solid ' + MC.line }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: MC.sub, marginBottom: 7 }}>비 고</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                {['긴급발주', '단기가납 SET', '정기발주', '수술 당일 배송'].map(t => (
+                {['방문수령합니다', '택배수령합니다'].map(t => (
                   <button key={t} onClick={() => setRemarks(r => r === t ? '' : t)}
                     style={{ padding: '4px 11px', borderRadius: 20, border: '1px solid ' + (remarks === t ? MC.accent : MC.line), background: remarks === t ? MC.accentSoft : MC.card, color: remarks === t ? MC.accent : MC.ink, fontSize: 12, cursor: 'pointer', fontWeight: remarks === t ? 700 : 400 }}>
                     {t}
