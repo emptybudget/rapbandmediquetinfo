@@ -498,13 +498,15 @@ function isAccessoryInstrument(name) {
   return /bolt|rod|connector/i.test(name) && !/screw|poly|mono|iliac/i.test(name);
 }
 
-// 선택된 스크루 계통에 맞는 부속품 반환; 커넥터 종류는 하나로 병합, MIS 로드는 2종만
+// 선택된 스크루 계통에 맞는 부속품 반환; 커넥터 종류는 하나로 병합, MIS 로드는 types 구조로 반환
 function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
   const isMIS    = /mis/i.test(instName);
   const isZenius = /zenius/i.test(instName);
   const isILIAD  = /iliad/i.test(instName);
 
-  const merged = new Map(); // displayName → { sizes: [], w: 0 }
+  // merged: displayName → { sizes, types, w }
+  // types 있으면 [{label, key, sizes}] — rod 다중 타입용
+  const merged = new Map();
 
   for (const [name, v] of Object.entries(hospitalData)) {
     if (!isAccessoryInstrument(name)) continue;
@@ -512,39 +514,49 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
     const isConn = /connector|transverse/i.test(name);
     const isRod  = /rod/i.test(name) && !isConn;
 
-    // System filtering
     if (isILIAD) {
       if (!isConn && !/iliad/i.test(name)) continue;
     } else if (isZenius) {
       if (/iliad/i.test(name)) continue;
     }
-    // MIS: rod만 MIS 전용 로드로 제한
     if (isMIS && isRod && !/mis/i.test(name)) continue;
 
-    // Normalize display name
-    let displayName;
+    let displayName, typeLabel = null;
     if (isConn) {
       displayName = /iliad/i.test(name) ? 'ILIAD Rod Connector' : 'Rod Connector';
     } else if (isMIS && isRod) {
-      displayName = /cov/i.test(name) ? 'MIS 커브드로드 COV' : 'MIS 스트레이트로드';
+      displayName = 'Rod';
+      typeLabel   = /cov/i.test(name) ? 'Curved COV' : 'Straight';
     } else {
       displayName = name;
     }
 
-    if (!merged.has(displayName)) merged.set(displayName, { sizes: [], w: 0 });
+    if (!merged.has(displayName)) merged.set(displayName, { sizes: [], types: null, w: 0 });
     const entry = merged.get(displayName);
     entry.w = Math.max(entry.w, v.w);
-    for (const s of v.sizes) {
-      if (!entry.sizes.some(e => e.size === s.size)) entry.sizes.push(s);
+
+    if (typeLabel) {
+      if (!entry.types) entry.types = [];
+      let t = entry.types.find(x => x.label === typeLabel);
+      if (!t) { t = { label: typeLabel, key: name, sizes: [] }; entry.types.push(t); }
+      for (const s of v.sizes) if (!t.sizes.some(e => e.size === s.size)) t.sizes.push(s);
+    } else {
+      for (const s of v.sizes) if (!entry.sizes.some(e => e.size === s.size)) entry.sizes.push(s);
     }
   }
 
   return [...merged.entries()].map(([name, entry]) => {
+    if (entry.types) {
+      const types = entry.types
+        .sort((a, b) => a.label === 'Straight' ? -1 : b.label === 'Straight' ? 1 : 0)
+        .map(t => ({ ...t, sizes: t.sizes.sort((a, b) => (a.size||'').localeCompare(b.size||'', undefined, { numeric: true, sensitivity: 'base' })) }));
+      return { name, types, w: entry.w };
+    }
     const us = userSz[hosp + '||' + name] || [];
     const usSet = new Set(us);
     const extra = us.map(s => ({ size: s, last: null, _user: true }));
     const sizes = [...extra, ...entry.sizes.filter(s => !usSet.has(s.size))]
-      .sort((a, b) => (a.size || '').localeCompare(b.size || '', undefined, { numeric: true, sensitivity: 'base' }));
+      .sort((a, b) => (a.size||'').localeCompare(b.size||'', undefined, { numeric: true, sensitivity: 'base' }));
     return { name, sizes, w: entry.w };
   }).sort((a, b) => b.w - a.w);
 }
@@ -574,6 +586,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
   const [newInst, setNewInst] = useState('');
   const [newSize, setNewSize] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [accTypeSelect, setAccTypeSelect] = useState({});
 
   // Reconstruct userInst and userSize from flat adds object
   const { userInst, userSize } = useMemo(() => {
@@ -757,35 +770,61 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
             {accessories.length > 0 && (
               <div style={{ marginTop: 20, borderTop: '2px dashed ' + MC.line, paddingTop: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: MC.sub, marginBottom: 12 }}>🔩 함께 발주</div>
-                {accessories.map(acc => (
-                  <div key={acc.name} style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: MC.ink, marginBottom: 6, fontFamily: mMono }}>{acc.name}</div>
-                    <div style={{ display: 'grid', gap: 7 }}>
-                      {acc.sizes.map(s => {
-                        const qty  = getQty(acc.name, s.size);
-                        const note = getNote(acc.name, s.size);
-                        return (
-                          <div key={s.size || '_'} style={{ borderRadius: 10, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card, overflow: 'hidden' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px' }}>
-                              <div>
-                                <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 14 }}>{s.size || '단일'}</div>
-                                {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub }}>{mMonthsAgo(s.last)}</div>}
-                              </div>
-                              <MBigStepper qty={qty} onSet={n => setQty(acc.name, s.size, n)} />
-                            </div>
-                            {qty > 0 && (
-                              <div style={{ padding: '0 12px 8px' }}>
-                                <input value={note} onChange={e => setNote(acc.name, s.size, e.target.value)}
-                                  placeholder="비고 (오픈·반품·교환 등)"
-                                  style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid ' + MC.line, fontSize: 11, background: 'transparent', boxSizing: 'border-box', fontFamily: 'inherit', color: MC.ink }} />
-                              </div>
-                            )}
+                {accessories.map(acc => {
+                  const renderSizeRow = (instKey, s) => {
+                    const qty  = getQty(instKey, s.size);
+                    const note = getNote(instKey, s.size);
+                    return (
+                      <div key={s.size || '_'} style={{ borderRadius: 10, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card, overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px' }}>
+                          <div>
+                            <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 14 }}>{s.size || '단일'}</div>
+                            {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub }}>{mMonthsAgo(s.last)}</div>}
                           </div>
-                        );
-                      })}
+                          <MBigStepper qty={qty} onSet={n => setQty(instKey, s.size, n)} />
+                        </div>
+                        {qty > 0 && (
+                          <div style={{ padding: '0 12px 8px' }}>
+                            <input value={note} onChange={e => setNote(instKey, s.size, e.target.value)}
+                              placeholder="비고 (오픈·반품·교환 등)"
+                              style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid ' + MC.line, fontSize: 11, background: 'transparent', boxSizing: 'border-box', fontFamily: 'inherit', color: MC.ink }} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+
+                  if (acc.types) {
+                    const selLabel = accTypeSelect[acc.name] ?? acc.types[0].label;
+                    const selType  = acc.types.find(t => t.label === selLabel) ?? acc.types[0];
+                    return (
+                      <div key={acc.name} style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: MC.ink, marginBottom: 8, fontFamily: mMono }}>{acc.name}</div>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                          {acc.types.map(t => (
+                            <button key={t.label}
+                              onClick={() => setAccTypeSelect(s => ({ ...s, [acc.name]: t.label }))}
+                              style={{ padding: '6px 16px', borderRadius: 8, border: '1.5px solid ' + (selLabel === t.label ? MC.accent : MC.line), background: selLabel === t.label ? MC.accentSoft : MC.card, color: selLabel === t.label ? MC.accent : MC.ink, fontWeight: selLabel === t.label ? 700 : 400, fontSize: 13, cursor: 'pointer' }}>
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ display: 'grid', gap: 7 }}>
+                          {selType.sizes.map(s => renderSizeRow(selType.key, s))}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={acc.name} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: MC.ink, marginBottom: 6, fontFamily: mMono }}>{acc.name}</div>
+                      <div style={{ display: 'grid', gap: 7 }}>
+                        {acc.sizes.map(s => renderSizeRow(acc.name, s))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             <MAddBox value={newSize} setValue={setNewSize} onAdd={addSize} placeholder="목록에 없는 사양 직접 입력 (예: 6.5*55)" label="사양 추가" />
