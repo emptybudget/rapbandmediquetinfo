@@ -27,14 +27,15 @@ function buildRows(items, groupGap) {
   return rows;
 }
 
-function fillSheet(ws, rows, template, vendor, requester, cols) {
+function fillSheet(ws, rows, template, vendor, requester, cols, note) {
   const { startRow, endRow } = template.itemTable;
-  const { date: dateCell, requester: reqCell, recipient: recCell } = template.cells;
+  const { date: dateCell, requester: reqCell, recipient: recCell, note: noteCell } = template.cells;
   const maxRows = endRow - startRow + 1;
 
   if (dateCell) ws.getCell(dateCell).value = new Date();
   if (reqCell && requester) ws.getCell(reqCell).value = requester;
   if (recCell) ws.getCell(recCell).value = vendor.name;
+  if (noteCell && note) ws.getCell(noteCell).value = note;
 
   // Clear item rows
   for (let r = startRow; r <= endRow; r++) {
@@ -96,7 +97,7 @@ async function cloneSheet(templateBuffer, wb, srcName, newName) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { vendorId, requester, items } = req.body || {};
+  const { vendorId, requester, items, hospital, note } = req.body || {};
 
   // Support legacy format: { orders: [{product, size, qty}] }
   if (!vendorId && req.body?.orders) {
@@ -136,20 +137,21 @@ export default async function handler(req, res) {
   await wb.xlsx.load(templateBuffer);
 
   const ws1 = wb.getWorksheet(sheetName) || wb.worksheets[0];
-  fillSheet(ws1, pages[0] || [], template, vendor, requester, cols);
+  fillSheet(ws1, pages[0] || [], template, vendor, requester, cols, note);
 
   for (let p = 1; p < pages.length; p++) {
     const wsN = await cloneSheet(templateBuffer, wb, sheetName, `${sheetName} (${p + 1})`);
-    fillSheet(wsN, pages[p], template, vendor, requester, cols);
+    fillSheet(wsN, pages[p], template, vendor, requester, cols, note);
   }
 
   const buffer = await wb.xlsx.writeBuffer();
   const today = new Date();
   const ds = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+  const hospPart = hospital ? encodeURIComponent(hospital) + '_' : '';
   const encVendor = encodeURIComponent(vendor.name);
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encVendor}_%EB%B0%9C%EC%A3%BC%EC%84%9C_${ds}.xlsx`);
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${hospPart}${encVendor}_%EB%B0%9C%EC%A3%BC%EC%84%9C_${ds}.xlsx`);
   res.send(buffer);
 }
 

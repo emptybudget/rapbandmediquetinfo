@@ -534,6 +534,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
   const [copied, setCopied] = useState(false);
   const [newInst, setNewInst] = useState('');
   const [newSize, setNewSize] = useState('');
+  const [remarks, setRemarks] = useState('');
 
   // Reconstruct userInst and userSize from flat adds object
   const { userInst, userSize } = useMemo(() => {
@@ -754,6 +755,20 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
                 </div>
               ))}
             </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid ' + MC.line }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: MC.sub, marginBottom: 7 }}>비 고</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {['긴급발주', '단기가납 SET', '정기발주', '수술 당일 배송'].map(t => (
+                  <button key={t} onClick={() => setRemarks(r => r === t ? '' : t)}
+                    style={{ padding: '4px 11px', borderRadius: 20, border: '1px solid ' + (remarks === t ? MC.accent : MC.line), background: remarks === t ? MC.accentSoft : MC.card, color: remarks === t ? MC.accent : MC.ink, fontSize: 12, cursor: 'pointer', fontWeight: remarks === t ? 700 : 400 }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <textarea value={remarks} onChange={e => setRemarks(e.target.value)}
+                placeholder="비고 내용 직접 입력 (예: 단기가납 SET / 홍길동 교수 / 수술 7/10)"
+                rows={2} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid ' + MC.line, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', background: MC.card }} />
+            </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 20px', borderTop: '1px solid ' + MC.line }}>
               <button onClick={() => onCartChange({})} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '11px 14px', borderRadius: 10, border: '1px solid ' + MC.line, background: MC.card, color: MC.sub, cursor: 'pointer', fontSize: 13 }}>
                 🗑 비우기
@@ -761,7 +776,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
               <button onClick={copyTSV} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px 14px', borderRadius: 10, border: '1px solid ' + MC.line, background: MC.card, fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
                 {copied ? '✅ 복사됐어요' : '📋 표 복사'}
               </button>
-              <button onClick={() => { setSheet(false); onDownload(hosp, cartArr); }} disabled={downloading}
+              <button onClick={() => { setSheet(false); onDownload(hosp, cartArr, remarks); }} disabled={downloading}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px 14px', borderRadius: 10, border: 'none', background: MC.accent, color: '#fff', fontWeight: 700, cursor: downloading ? 'default' : 'pointer', fontSize: 14, opacity: downloading ? 0.6 : 1 }}>
                 {downloading ? '생성 중...' : '📄 엑셀 다운로드'}
               </button>
@@ -969,14 +984,14 @@ export default function Home() {
   }, []);
 
   // ── Medyssey download ─────────────────────────────────────────────────────
-  const handleMedysseyDownload = useCallback(async (hospital, cartArr) => {
+  const handleMedysseyDownload = useCallback(async (hospital, cartArr, note) => {
     setMedDownloading(true);
     try {
       const items = cartArr.map(c => ({ name: c.inst, spec: c.size, qty: c.qty }));
       const res = await fetch('/api/generate-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vendorId: 'medyssey', requester, items }),
+        body: JSON.stringify({ vendorId: 'medyssey', requester, items, hospital, note }),
       });
       if (!res.ok) throw new Error('서버 오류 ' + res.status);
       const blob = await res.blob();
@@ -985,7 +1000,7 @@ export default function Home() {
       const today = new Date();
       const ds = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
       a.href = url;
-      a.download = `메디쎄이_발주서_${ds}.xlsx`;
+      a.download = `${hospital ? hospital + '_' : ''}메디쎄이_발주서_${ds}.xlsx`;
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(url);
       addLogEntry({ vendor: 'medyssey', tab: 'medyssey', hospital, items });
