@@ -43,6 +43,7 @@ function fillSheet(ws, rows, template, vendor, requester, cols, note) {
     ws.getCell(`${cols.name}${r}`).value = null;
     ws.getCell(`${cols.spec}${r}`).value = null;
     ws.getCell(`${cols.qty}${r}`).value = null;
+    if (cols.note) ws.getCell(`${cols.note}${r}`).value = null;
   }
 
   // Fill rows
@@ -59,6 +60,11 @@ function fillSheet(ws, rows, template, vendor, requester, cols, note) {
     const qtyCell = ws.getCell(`${cols.qty}${r}`);
     qtyCell.value = row.qty;
     styleDataCell(qtyCell);
+    if (cols.note && row.note) {
+      const rowNoteCell = ws.getCell(`${cols.note}${r}`);
+      rowNoteCell.value = row.note;
+      styleDataCell(rowNoteCell);
+    }
   });
 }
 

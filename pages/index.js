@@ -487,30 +487,58 @@ function isAccessoryInstrument(name) {
   return /bolt|rod|connector/i.test(name) && !/screw|poly|mono|iliac/i.test(name);
 }
 
-// 선택된 스크루 계통에 맞는 부속품만 반환 (Zenius↔ILIAD 분리)
+// 선택된 스크루 계통에 맞는 부속품 반환; 커넥터 종류는 하나로 병합, MIS 로드는 2종만
 function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
+  const isMIS    = /mis/i.test(instName);
   const isZenius = /zenius/i.test(instName);
   const isILIAD  = /iliad/i.test(instName);
 
-  return Object.entries(hospitalData)
-    .filter(([name]) => isAccessoryInstrument(name))
-    .filter(([name]) => {
-      if (isZenius) return !/iliad/i.test(name);
-      if (isILIAD)  return /iliad/i.test(name) || !/zenius/i.test(name);
-      return true;
-    })
-    .map(([name, v]) => {
-      const us = (userSz[hosp + '||' + name] || []);
-      const usSet = new Set(us);
-      const extra = us.map(s => ({ size: s, last: null, _user: true }));
-      const sizes = [...extra, ...v.sizes.filter(s => !usSet.has(s.size))]
-        .sort((a, b) => (a.size || '').localeCompare(b.size || '', undefined, { numeric: true, sensitivity: 'base' }));
-      return { name, sizes, w: v.w };
-    })
-    .sort((a, b) => b.w - a.w);
+  const merged = new Map(); // displayName → { sizes: [], w: 0 }
+
+  for (const [name, v] of Object.entries(hospitalData)) {
+    if (!isAccessoryInstrument(name)) continue;
+
+    const isConn = /connector|transverse/i.test(name);
+    const isRod  = /rod/i.test(name) && !isConn;
+
+    // System filtering
+    if (isILIAD) {
+      if (!isConn && !/iliad/i.test(name)) continue;
+    } else if (isZenius) {
+      if (/iliad/i.test(name)) continue;
+    }
+    // MIS: rod만 MIS 전용 로드로 제한
+    if (isMIS && isRod && !/mis/i.test(name)) continue;
+
+    // Normalize display name
+    let displayName;
+    if (isConn) {
+      displayName = /iliad/i.test(name) ? 'ILIAD Rod Connector' : 'Rod Connector';
+    } else if (isMIS && isRod) {
+      displayName = /cov/i.test(name) ? 'MIS 커브드로드 COV' : 'MIS 스트레이트로드';
+    } else {
+      displayName = name;
+    }
+
+    if (!merged.has(displayName)) merged.set(displayName, { sizes: [], w: 0 });
+    const entry = merged.get(displayName);
+    entry.w = Math.max(entry.w, v.w);
+    for (const s of v.sizes) {
+      if (!entry.sizes.some(e => e.size === s.size)) entry.sizes.push(s);
+    }
+  }
+
+  return [...merged.entries()].map(([name, entry]) => {
+    const us = userSz[hosp + '||' + name] || [];
+    const usSet = new Set(us);
+    const extra = us.map(s => ({ size: s, last: null, _user: true }));
+    const sizes = [...extra, ...entry.sizes.filter(s => !usSet.has(s.size))]
+      .sort((a, b) => (a.size || '').localeCompare(b.size || '', undefined, { numeric: true, sensitivity: 'base' }));
+    return { name, sizes, w: entry.w };
+  }).sort((a, b) => b.w - a.w);
 }
 
-function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownload, downloading, requester }) {
+function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartChange, onDownload, downloading, requester }) {
   const today = new Date().toISOString().slice(0, 10);
 
   const hospitals = useMemo(() => {
@@ -581,11 +609,17 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
   }, [inst, hosp, userSize]);
 
   const keyOf = (i, s) => i + '||' + s;
-  const getQty = (i, s) => cart[keyOf(i, s)]?.qty || 0;
-  const setQty = (i, s, n) => onCartChange(prev => {
+  const getQty  = (i, s) => cart[keyOf(i, s)]?.qty || 0;
+  const getNote = (i, s) => cart[keyOf(i, s)]?.note || '';
+  const setQty  = (i, s, n) => onCartChange(prev => {
     const k = keyOf(i, s);
     if (n <= 0) { const x = { ...prev }; delete x[k]; return x; }
-    return { ...prev, [k]: { inst: i, size: s, qty: n } };
+    return { ...prev, [k]: { ...(prev[k] || { inst: i, size: s }), qty: n } };
+  });
+  const setNote = (i, s, note) => onCartChange(prev => {
+    const k = keyOf(i, s);
+    if (!prev[k]) return prev;
+    return { ...prev, [k]: { ...prev[k], note } };
   });
 
   const cartArr = Object.values(cart);
@@ -679,16 +713,31 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
           <MSection guide="③ 사양 옆 −／＋ 로 수량을 정하세요">
             <div style={{ display: 'grid', gap: 9 }}>
               {sizes.map(s => {
-                const qty = getQty(inst, s.size);
+                const qty  = getQty(inst, s.size);
+                const note = getNote(inst, s.size);
                 return (
-                  <div key={s.size || '_'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '13px 14px', borderRadius: 12, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {s.size || '단일 (규격 없음)'}{s._user && <MTag />}
+                  <div key={s.size || '_'} style={{ borderRadius: 12, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card, overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '13px 14px' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 16, display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span>{s.size || '단일 (규격 없음)'}</span>
+                          {s._user && <MTag />}
+                          {s._user && (
+                            <button onClick={() => onRemoveSize(hosp, inst, s.size)}
+                              style={{ padding: '1px 6px', borderRadius: 5, border: '1px solid #e0362088', background: 'transparent', color: '#c0392b', fontSize: 12, cursor: 'pointer', lineHeight: 1.4 }}>×</button>
+                          )}
+                        </div>
+                        {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub, marginTop: 2 }}>{mMonthsAgo(s.last)}</div>}
                       </div>
-                      {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub, marginTop: 2 }}>{mMonthsAgo(s.last)}</div>}
+                      <MBigStepper qty={qty} onSet={n => setQty(inst, s.size, n)} />
                     </div>
-                    <MBigStepper qty={qty} onSet={n => setQty(inst, s.size, n)} />
+                    {qty > 0 && (
+                      <div style={{ padding: '0 14px 10px' }}>
+                        <input value={note} onChange={e => setNote(inst, s.size, e.target.value)}
+                          placeholder="비고 (오픈·반품·교환 등)"
+                          style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid ' + MC.line, fontSize: 12, background: 'transparent', boxSizing: 'border-box', fontFamily: 'inherit', color: MC.ink }} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -702,14 +751,24 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
                     <div style={{ fontSize: 13, fontWeight: 600, color: MC.ink, marginBottom: 6, fontFamily: mMono }}>{acc.name}</div>
                     <div style={{ display: 'grid', gap: 7 }}>
                       {acc.sizes.map(s => {
-                        const qty = getQty(acc.name, s.size);
+                        const qty  = getQty(acc.name, s.size);
+                        const note = getNote(acc.name, s.size);
                         return (
-                          <div key={s.size || '_'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card }}>
-                            <div>
-                              <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 14 }}>{s.size || '단일'}</div>
-                              {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub }}>{mMonthsAgo(s.last)}</div>}
+                          <div key={s.size || '_'} style={{ borderRadius: 10, border: '1px solid ' + (qty > 0 ? MC.accent : MC.line), background: qty > 0 ? MC.accentSoft : MC.card, overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px' }}>
+                              <div>
+                                <div style={{ fontFamily: mMono, fontWeight: 700, fontSize: 14 }}>{s.size || '단일'}</div>
+                                {mMonthsAgo(s.last) && <div style={{ fontSize: 11, color: MC.sub }}>{mMonthsAgo(s.last)}</div>}
+                              </div>
+                              <MBigStepper qty={qty} onSet={n => setQty(acc.name, s.size, n)} />
                             </div>
-                            <MBigStepper qty={qty} onSet={n => setQty(acc.name, s.size, n)} />
+                            {qty > 0 && (
+                              <div style={{ padding: '0 12px 8px' }}>
+                                <input value={note} onChange={e => setNote(acc.name, s.size, e.target.value)}
+                                  placeholder="비고 (오픈·반품·교환 등)"
+                                  style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid ' + MC.line, fontSize: 11, background: 'transparent', boxSizing: 'border-box', fontFamily: 'inherit', color: MC.ink }} />
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -750,6 +809,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{it.inst}</div>
                     <div style={{ fontFamily: mMono, fontSize: 12, color: MC.sub }}>{it.size || '단일'}</div>
+                    {it.note && <div style={{ fontSize: 11, color: MC.sub, marginTop: 2, fontStyle: 'italic' }}>{it.note}</div>}
                   </div>
                   <MBigStepper qty={it.qty} onSet={n => setQty(it.inst, it.size, n)} />
                 </div>
@@ -983,11 +1043,26 @@ export default function Home() {
     }).catch(() => {});
   }, []);
 
+  const handleRemoveSize = useCallback((hospital, instrument, size) => {
+    const key = `${hospital}|${instrument}|${size}`;
+    setMedysseyAdds(prev => {
+      const next = { ...prev };
+      delete next[key];
+      try { localStorage.setItem(LS_MED_ADDS, JSON.stringify(next)); } catch {}
+      return next;
+    });
+    fetch('/api/medyssey-adds', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hospital, instrument, size }),
+    }).catch(() => {});
+  }, []);
+
   // ── Medyssey download ─────────────────────────────────────────────────────
   const handleMedysseyDownload = useCallback(async (hospital, cartArr, note) => {
     setMedDownloading(true);
     try {
-      const items = cartArr.map(c => ({ name: c.inst, spec: c.size, qty: c.qty }));
+      const items = cartArr.map(c => ({ name: c.inst, spec: c.size, qty: c.qty, note: c.note || undefined }));
       const res = await fetch('/api/generate-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1140,6 +1215,7 @@ export default function Home() {
                     adds={medysseyAdds}
                     onAddInst={handleAddInst}
                     onAddSize={handleAddSize}
+                    onRemoveSize={handleRemoveSize}
                     cart={medysseyCart}
                     onCartChange={setMedysseyCart}
                     onDownload={handleMedysseyDownload}

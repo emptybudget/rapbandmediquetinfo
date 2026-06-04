@@ -27,5 +27,17 @@ export default async function handler(req, res) {
     return res.json({ ok: true, key });
   }
 
+  if (req.method === 'DELETE') {
+    const { hospital, instrument, size } = req.body || {};
+    if (!hospital || !instrument) {
+      return res.status(400).json({ error: 'hospital and instrument required' });
+    }
+    const key = `${hospital}|${instrument}|${size ?? ''}`;
+    if (redis) {
+      try { await redis.hdel(ADDS_KEY, key); } catch {}
+    }
+    return res.json({ ok: true, key });
+  }
+
   res.status(405).end();
 }
