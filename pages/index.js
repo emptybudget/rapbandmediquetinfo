@@ -503,7 +503,8 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
       const us = (userSz[hosp + '||' + name] || []);
       const usSet = new Set(us);
       const extra = us.map(s => ({ size: s, last: null, _user: true }));
-      const sizes = [...extra, ...v.sizes.filter(s => !usSet.has(s.size))];
+      const sizes = [...extra, ...v.sizes.filter(s => !usSet.has(s.size))]
+        .sort((a, b) => (a.size || '').localeCompare(b.size || '', undefined, { numeric: true, sensitivity: 'base' }));
       return { name, sizes, w: v.w };
     })
     .sort((a, b) => b.w - a.w);
@@ -569,7 +570,8 @@ function MedysseyTab({ adds, onAddInst, onAddSize, cart, onCartChange, onDownloa
     const us = userSize[hosp + '||' + inst] || [];
     const usSet = new Set(us);
     const extra = us.map(size => ({ size, last: null, _user: true }));
-    return [...extra, ...base.filter(s => !usSet.has(s.size))];
+    const all = [...extra, ...base.filter(s => !usSet.has(s.size))];
+    return all.sort((a, b) => (a.size || '').localeCompare(b.size || '', undefined, { numeric: true, sensitivity: 'base' }));
   }, [hosp, inst, userSize]);
 
   const accessories = useMemo(() => {
