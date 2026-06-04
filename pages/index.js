@@ -525,7 +525,7 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
 
     let displayName, typeLabel = null;
     if (isConn) {
-      displayName = /iliad/i.test(name) ? 'ILIAD Rod Connector' : 'Rod Connector';
+      displayName = 'Rod Connector';
     } else if (isMIS && isRod) {
       displayName = 'Rod';
       typeLabel   = /cov/i.test(name) ? 'Curved' : 'Straight';
@@ -551,7 +551,14 @@ function getRelevantAccessories(instName, hospitalData, userSz, hosp) {
     if (entry.types) {
       const types = entry.types
         .sort((a, b) => a.label === 'Curved' ? -1 : b.label === 'Curved' ? 1 : 0)
-        .map(t => ({ ...t, sizes: t.sizes.sort((a, b) => (a.size||'').localeCompare(b.size||'', undefined, { numeric: true, sensitivity: 'base' })) }));
+        .map(t => {
+          const us = userSz[hosp + '||' + t.key] || [];
+          const usSet = new Set(us);
+          const extra = us.map(s => ({ size: s, last: null, _user: true }));
+          const sizes = [...extra, ...t.sizes.filter(s => !usSet.has(s.size))]
+            .sort((a, b) => (a.size||'').localeCompare(b.size||'', undefined, { numeric: true, sensitivity: 'base' }));
+          return { ...t, sizes };
+        });
       return { name, types, w: entry.w };
     }
     const us = userSz[hosp + '||' + name] || [];
@@ -586,7 +593,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
   const [sheet, setSheet] = useState(false);
   const [copied, setCopied] = useState(false);
   const [newInst, setNewInst] = useState('');
-  const [newSize, setNewSize] = useState('');
+  const [newSizes, setNewSizes] = useState({});
   const [remarks, setRemarks] = useState('');
   const [accTypeSelect, setAccTypeSelect] = useState({});
 
@@ -668,12 +675,12 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
     goInst(n);
   };
 
-  const addSize = () => {
-    const s = newSize.trim();
+  const addSizeFor = (instKey) => {
+    const s = (newSizes[instKey] || '').trim();
     if (!s) return;
-    onAddSize(hosp, inst, s);
-    setNewSize('');
-    setQty(inst, s, 1);
+    onAddSize(hosp, instKey, s);
+    setNewSizes(prev => ({ ...prev, [instKey]: '' }));
+    setQty(instKey, s, 1);
   };
 
   return (
@@ -769,6 +776,7 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
               })}
               {sizes.length === 0 && <MEmpty>사양이 없어요 — 아래에서 직접 추가하세요</MEmpty>}
             </div>
+            <MAddBox value={newSizes[inst] || ''} setValue={v => setNewSizes(p => ({ ...p, [inst]: v }))} onAdd={() => addSizeFor(inst)} placeholder="목록에 없는 사양 직접 입력 (예: 6.5*55)" label="사양 추가" />
             {accessories.length > 0 && (
               <div style={{ marginTop: 20, borderTop: '2px dashed ' + MC.line, paddingTop: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: MC.sub, marginBottom: 12 }}>🔩 함께 발주</div>
@@ -814,22 +822,26 @@ function MedysseyTab({ adds, onAddInst, onAddSize, onRemoveSize, cart, onCartCha
                         <div style={{ display: 'grid', gap: 7 }}>
                           {selType.sizes.map(s => renderSizeRow(selType.key, s))}
                         </div>
+                        <MAddBox value={newSizes[selType.key] || ''} setValue={v => setNewSizes(p => ({ ...p, [selType.key]: v }))} onAdd={() => addSizeFor(selType.key)} placeholder="사양 직접 입력" label="사양 추가" />
                       </div>
                     );
                   }
 
+                  const isBoltAcc = /^(iliad\s+)?bolt$/i.test(acc.name);
                   return (
                     <div key={acc.name} style={{ marginBottom: 14 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: MC.ink, marginBottom: 6, fontFamily: mMono }}>{acc.name}</div>
                       <div style={{ display: 'grid', gap: 7 }}>
                         {acc.sizes.map(s => renderSizeRow(acc.name, s))}
                       </div>
+                      {!isBoltAcc && (
+                        <MAddBox value={newSizes[acc.name] || ''} setValue={v => setNewSizes(p => ({ ...p, [acc.name]: v }))} onAdd={() => addSizeFor(acc.name)} placeholder="사양 직접 입력" label="사양 추가" />
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
-            <MAddBox value={newSize} setValue={setNewSize} onAdd={addSize} placeholder="목록에 없는 사양 직접 입력 (예: 6.5*55)" label="사양 추가" />
           </MSection>
         )}
       </div>
