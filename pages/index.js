@@ -208,6 +208,44 @@ function OchaPanel({ ocha, onChange, onReset }) {
   );
 }
 
+// ─── UsageTable (수량 확인 · 사용량만) ──────────────────────────────────────────
+function UsageTable({ vendor }) {
+  const monthKeys = vendor.usageMonths
+    || (vendor.products[0]?.monthly ? Object.keys(vendor.products[0].monthly) : []);
+  return (
+    <div className={styles.section}>
+      <h2 className={styles.sectionTitle} style={{ borderLeftColor: vendor.color }}>수량 확인</h2>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>품목</th>
+              {monthKeys.map(k => (
+                <th key={k}>{k.split('-')[1].replace(/^0/, '')}월<br /><span className={styles.small}>{k.split('-')[0]}</span></th>
+              ))}
+              <th>월평균<br />사용량<br /><span className={styles.small}>(3개월 ÷ 3)</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {vendor.products.map(prod => (
+              <tr key={prod.id}>
+                <td><SizeChip sizeObj={{ label: prod.name, chipColor: prod.color }} /></td>
+                {monthKeys.map(k => (
+                  <td key={k} className={styles.num}>{prod.monthly[k] ?? '—'}</td>
+                ))}
+                <td className={`${styles.num} ${styles.bold}`}>{prod.avg_monthly}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className={styles.helperNote} style={{ padding: '10px 4px 0', fontSize: '0.82rem', color: '#777' }}>
+        월평균 사용량 = 최근 3개월({monthKeys.map(k => k.split('-')[1].replace(/^0/, '') + '월').join('·')}) 사용량 합계 ÷ 3
+      </p>
+    </div>
+  );
+}
+
 // ─── ProductTable ─────────────────────────────────────────────────────────────
 function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChange, onAdjust, onResetAdj }) {
   const monthKeys = product.sizes[0]?.monthly ? Object.keys(product.sizes[0].monthly) : [];
@@ -924,9 +962,12 @@ function VendorCard({ vendor, onClick }) {
     );
   }
   const icon = vendor.type === 'history' ? '🔬'
+    : vendor.type === 'usage' ? '📊'
     : vendor.products.some(p => p.type === 'calculated') ? '💊' : '📦';
   const meta = vendor.type === 'history'
     ? '병원별 기구 발주'
+    : vendor.type === 'usage'
+    ? '수량 확인 · 월별 사용량'
     : vendor.products.map(p => p.name).join(' · ');
 
   return (
@@ -1237,7 +1278,7 @@ export default function Home() {
       <div className={styles.page}>
         <header className={styles.header}>
           <h1 className={styles.title}>
-            {activeVendor ? activeVendor.name + ' 발주' : inSupplies ? '소모품 발주' : '발주 관리'}
+            {activeVendor ? activeVendor.name + (activeVendor.type === 'usage' ? ' 수량 확인' : ' 발주') : inSupplies ? '소모품 발주' : '발주 관리'}
           </h1>
           <p className={styles.subtitle}>
             {(activeVendor || inSupplies) ? '← 홈으로 돌아가려면 뒤로가기 버튼을 누르세요' : '업체별 발주서 통합 관리'}
@@ -1273,6 +1314,7 @@ export default function Home() {
           {(activeVendor || inSupplies) && (
             <>
               {/* Requester row */}
+              {activeVendor?.type !== 'usage' && (
               <div className={styles.requesterRow}>
                 <span className={styles.requesterLabel}>출고의뢰인</span>
                 <input
@@ -1283,6 +1325,7 @@ export default function Home() {
                   className={styles.requesterInput}
                 />
               </div>
+              )}
 
               {/* ── 소모품 (grouped vendors) ── */}
               {inSupplies && (
@@ -1317,6 +1360,11 @@ export default function Home() {
                 </div>
               )}
 
+              {/* ── Bi-Jet (usage type · 수량 확인) ── */}
+              {activeVendor?.type === 'usage' && (
+                <UsageTable vendor={activeVendor} />
+              )}
+
               {/* ── Medyssey (history type) ── */}
               {activeVendor?.type === 'history' && (
                 <div className={styles.section}>
@@ -1335,7 +1383,7 @@ export default function Home() {
               )}
 
               {/* ── Standard vendors (calculated + manual) ── */}
-              {activeVendor && activeVendor.type !== 'history' && (() => {
+              {activeVendor && activeVendor.type !== 'history' && activeVendor.type !== 'usage' && (() => {
                 const calcProds = activeVendor.products.filter(p => p.type === 'calculated');
                 const manualProds = activeVendor.products.filter(p => p.type === 'manual');
                 const isRepmed = activeVendor.id === 'repmedicare';
