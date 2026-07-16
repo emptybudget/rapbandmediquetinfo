@@ -24,6 +24,25 @@ const LS_BAND     = 'bandOrderStocks';
 const LS_DRAFTS   = 'vendorDrafts';
 const LS_REQUESTER = 'lastRequester';
 const LS_MED_ADDS = 'medysseyAdds';
+const LS_BIJET    = 'bijetUsage';
+
+const BIJET_VENDOR = VENDOR_MAP['bijet'];
+
+// Seed the Bi-Jet usage store from vendor config (productId → { 'YYYY-MM': qty }).
+function defaultBijetUsage() {
+  return Object.fromEntries((BIJET_VENDOR?.products || []).map(p => [p.id, { ...(p.monthly || {}) }]));
+}
+
+// 당월 제외 최근 n개월 ('YYYY-MM', 오래된 → 최근 순)
+function getRecentMonths(n) {
+  const now = new Date();
+  const months = [];
+  for (let i = n; i >= 1; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return months;
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 function calcOrder(avgMonthly, currentStock) {
@@ -112,6 +131,41 @@ async function parseExcelStocks(file, product) {
         break;
       }
     }
+  }
+  return result;
+}
+
+// Parse a Bi-Jet 관리대장 workbook → { [productId]: { 'YYYY-MM': totalQty } }.
+// Aggregates the 사용내역 section (사용일자 열 + 그 옆 수량 열) per matching sheet.
+async function parseBijetUsage(file, products) {
+  const XLSX = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const now = new Date();
+  const result = {};
+  for (const prod of products) {
+    const sheetName = wb.SheetNames.find(n =>
+      (prod.sheetIncludes || []).every(k => n.includes(k)) &&
+      !(prod.sheetExcludes || []).some(k => n.includes(k)));
+    if (!sheetName) continue;
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, blankrows: false });
+    // Locate the 사용일자 column from the header row (수량 is the next column over).
+    let dateCol = -1, headerIdx = -1;
+    for (let i = 0; i < Math.min(rows.length, 12); i++) {
+      const c = (rows[i] || []).findIndex(v => typeof v === 'string' && v.replace(/\s/g, '').includes('사용일자'));
+      if (c >= 0) { dateCol = c; headerIdx = i; break; }
+    }
+    if (dateCol < 0) continue;
+    const qtyCol = dateCol + 1;
+    const monthly = {};
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const d = rows[i]?.[dateCol], q = rows[i]?.[qtyCol];
+      if (!(d instanceof Date) || typeof q !== 'number') continue;
+      if (d > now) continue; // skip future-dated typo rows
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthly[ym] = (monthly[ym] || 0) + q;
+    }
+    result[prod.id] = monthly;
   }
   return result;
 }
@@ -208,41 +262,97 @@ function OchaPanel({ ocha, onChange, onReset }) {
   );
 }
 
-// ─── UsageTable (수량 확인 · 사용량만) ──────────────────────────────────────────
-function UsageTable({ vendor }) {
-  const monthKeys = vendor.usageMonths
-    || (vendor.products[0]?.monthly ? Object.keys(vendor.products[0].monthly) : []);
+// ─── Bi-Jet upload (관리대장 → 실시간 사용량) ───────────────────────────────────
+function BijetUploadSection({ products, onUpload }) {
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const handleApply = async () => {
+    if (!file) { setMsg('파일을 먼저 선택해주세요.'); return; }
+    setLoading(true); setMsg('');
+    try {
+      const res = await parseBijetUsage(file, products);
+      const found = Object.keys(res).length;
+      if (!found) {
+        setMsg('❌ 인식된 시트가 없습니다 (외장형 / 멸균 시트를 확인하세요)');
+      } else {
+        onUpload(res);
+        setMsg(`✅ ${found}개 품목 사용량 갱신 완료`);
+      }
+    } catch (e) {
+      setMsg('❌ 파일 읽기 오류: ' + e.message);
+    }
+    setLoading(false);
+  };
+
   return (
-    <div className={styles.section}>
-      <h2 className={styles.sectionTitle} style={{ borderLeftColor: vendor.color }}>수량 확인</h2>
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>품목</th>
-              {monthKeys.map(k => (
-                <th key={k}>{k.split('-')[1].replace(/^0/, '')}월<br /><span className={styles.small}>{k.split('-')[0]}</span></th>
-              ))}
-              <th>월평균<br />사용량<br /><span className={styles.small}>(3개월 ÷ 3)</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {vendor.products.map(prod => (
-              <tr key={prod.id}>
-                <td><SizeChip sizeObj={{ label: prod.name, chipColor: prod.color }} /></td>
-                {monthKeys.map(k => (
-                  <td key={k} className={styles.num}>{prod.monthly[k] ?? '—'}</td>
-                ))}
-                <td className={`${styles.num} ${styles.bold}`}>{prod.avg_monthly}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className={styles.uploadBox}>
+      <h2 className={styles.uploadTitle}>엑셀 파일 업로드</h2>
+      <p className={styles.uploadDesc}>Bi-Jet 관리대장을 올리면 당월 제외 최근 3개월 사용량을 자동 계산합니다.</p>
+      <div className={styles.uploadRow}>
+        <label className={styles.fileLabel}>
+          <span className={styles.prodTag} style={{ background: '#0e7c66' }}>관리대장</span>
+          <input type="file" accept=".xlsx,.xls" className={styles.fileInput}
+            onChange={e => setFile(e.target.files[0] || null)} />
+          <span className={styles.fileName}>{file ? file.name : '파일 선택'}</span>
+        </label>
       </div>
-      <p className={styles.helperNote} style={{ padding: '10px 4px 0', fontSize: '0.82rem', color: '#777' }}>
-        월평균 사용량 = 최근 3개월({monthKeys.map(k => k.split('-')[1].replace(/^0/, '') + '월').join('·')}) 사용량 합계 ÷ 3
-      </p>
+      <button onClick={handleApply} disabled={loading} className={styles.applyBtn}>
+        {loading ? '처리 중...' : '사용량 자동 계산'}
+      </button>
+      {msg && <p className={styles.uploadMsg}>{msg}</p>}
     </div>
+  );
+}
+
+// ─── UsageTab (수량 확인 · 사용량만, 월 자동 갱신) ───────────────────────────────
+function UsageTab({ vendor, usage, onUpload }) {
+  const monthKeys = getRecentMonths(3);
+  const rows = vendor.products.map(prod => {
+    const m = usage[prod.id] || {};
+    const vals = monthKeys.map(k => (typeof m[k] === 'number' ? m[k] : null));
+    const complete = vals.every(v => v != null);
+    const sum = vals.reduce((s, v) => s + (v || 0), 0);
+    const avg = complete ? Math.round(sum / monthKeys.length) : null;
+    return { prod, vals, avg };
+  });
+
+  return (
+    <>
+      <BijetUploadSection products={vendor.products} onUpload={onUpload} />
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle} style={{ borderLeftColor: vendor.color }}>수량 확인</h2>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>품목</th>
+                {monthKeys.map(k => (
+                  <th key={k}>{k.split('-')[1].replace(/^0/, '')}월<br /><span className={styles.small}>{k.split('-')[0]}</span></th>
+                ))}
+                <th>월평균<br />사용량<br /><span className={styles.small}>(3개월 ÷ 3)</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ prod, vals, avg }) => (
+                <tr key={prod.id}>
+                  <td><SizeChip sizeObj={{ label: prod.name, chipColor: prod.color }} /></td>
+                  {vals.map((v, i) => (
+                    <td key={monthKeys[i]} className={styles.num}>{v == null ? '—' : v}</td>
+                  ))}
+                  <td className={`${styles.num} ${styles.bold}`}>{avg == null ? '—' : avg}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className={styles.helperNote} style={{ padding: '10px 4px 0', fontSize: '0.82rem', color: '#777' }}>
+          월평균 사용량 = 당월 제외 최근 3개월({monthKeys.map(k => k.split('-')[1].replace(/^0/, '') + '월').join('·')}) 사용량 합계 ÷ 3.
+          {rows.some(r => r.avg == null) && ' 최신 관리대장을 업로드하면 자동 계산됩니다.'}
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -997,6 +1107,9 @@ export default function Home() {
   // Other vendor manual orders: { [vendorId]: { [productId]: { [sizeId]: qty } } }
   const [vendorDrafts, setVendorDrafts] = useState({});
 
+  // Bi-Jet usage: { [productId]: { 'YYYY-MM': qty } }
+  const [bijetUsage, setBijetUsage] = useState(defaultBijetUsage);
+
   // Medyssey
   const [medysseyAdds, setMedysseyAdds] = useState({});
   const [medysseyCart, setMedysseyCart] = useState({});
@@ -1025,6 +1138,17 @@ export default function Home() {
     try {
       const req = localStorage.getItem(LS_REQUESTER);
       if (req) setRequester(req);
+    } catch {}
+    try {
+      const bj = localStorage.getItem(LS_BIJET);
+      if (bj) {
+        const parsed = JSON.parse(bj);
+        setBijetUsage(prev => {
+          const next = { ...prev };
+          for (const [pid, m] of Object.entries(parsed)) next[pid] = { ...next[pid], ...m };
+          return next;
+        });
+      }
     } catch {}
 
     // Medyssey adds: load from localStorage first, then merge with server
@@ -1064,6 +1188,19 @@ export default function Home() {
     if (!hydrated) return;
     try { localStorage.setItem(LS_REQUESTER, requester); } catch {}
   }, [requester, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(LS_BIJET, JSON.stringify(bijetUsage)); } catch {}
+  }, [bijetUsage, hydrated]);
+
+  const handleBijetUpload = useCallback((results) => {
+    setBijetUsage(prev => {
+      const next = { ...prev };
+      for (const [pid, m] of Object.entries(results)) next[pid] = { ...next[pid], ...m };
+      return next;
+    });
+  }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const resetProductAdj = useCallback((productId) => {
@@ -1362,7 +1499,7 @@ export default function Home() {
 
               {/* ── Bi-Jet (usage type · 수량 확인) ── */}
               {activeVendor?.type === 'usage' && (
-                <UsageTable vendor={activeVendor} />
+                <UsageTab vendor={activeVendor} usage={bijetUsage} onUpload={handleBijetUpload} />
               )}
 
               {/* ── Medyssey (history type) ── */}
