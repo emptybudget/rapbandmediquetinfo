@@ -25,12 +25,19 @@ const LS_DRAFTS   = 'vendorDrafts';
 const LS_REQUESTER = 'lastRequester';
 const LS_MED_ADDS = 'medysseyAdds';
 const LS_BIJET    = 'bijetUsage';
+const LS_BAND_USAGE = 'bandUsageHistory';
 
 const BIJET_VENDOR = VENDOR_MAP['bijet'];
 
 // Seed the Bi-Jet usage store from vendor config (productId → { 'YYYY-MM': qty }).
 function defaultBijetUsage() {
   return Object.fromEntries((BIJET_VENDOR?.products || []).map(p => [p.id, { ...(p.monthly || {}) }]));
+}
+
+// Seed the band usage store: { productId: { sizeId: { 'YYYY-MM': qty } } }.
+function defaultBandUsage() {
+  return Object.fromEntries(CALCULATED_PRODUCTS.map(p =>
+    [p.id, Object.fromEntries(p.sizes.map(sz => [sz.id, { ...(sz.monthly || {}) }]))]));
 }
 
 // 당월 제외 최근 n개월 ('YYYY-MM', 오래된 → 최근 순)
@@ -42,6 +49,16 @@ function getRecentMonths(n) {
     months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
   return months;
+}
+
+// Average of the rolling window; falls back to the static seed avg when the
+// window is not fully covered by data (e.g. before the latest file is uploaded).
+function windowAvg(monthlyMap, monthKeys, fallback) {
+  const vals = monthKeys.map(k => monthlyMap?.[k]);
+  const complete = vals.every(v => typeof v === 'number');
+  if (!complete) return { avg: fallback, complete: false, vals };
+  const sum = vals.reduce((s, v) => s + v, 0);
+  return { avg: Math.round((sum / monthKeys.length) * 10) / 10, complete: true, vals };
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -117,22 +134,42 @@ function fmtLogBadge(entry) {
   return '기타';
 }
 
-async function parseExcelStocks(file, product) {
+// Parse a Mediquet/Rapband workbook in one pass:
+//   stocks: { sizeId: 현재고량(D3) }
+//   usage:  { sizeId: { 'YYYY-MM': 사용수량 합계 } }  ← from the 사용내역 table
+async function parseBandFile(file, product) {
   const XLSX = await import('xlsx');
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-  const result = {};
-  for (const sheetName of wb.SheetNames) {
-    const up = sheetName.toUpperCase();
-    for (const sz of product.sizes) {
-      if (up.includes(`(${sz.id})`)) {
-        const cell = wb.Sheets[sheetName]['D3'];
-        if (cell != null) result[sz.id] = Number(cell.v);
-        break;
-      }
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const now = new Date();
+  const stocks = {}, usage = {};
+  for (const sz of product.sizes) {
+    const sheetName = wb.SheetNames.find(n => n.toUpperCase().includes(`(${sz.id})`));
+    if (!sheetName) continue;
+    const ws = wb.Sheets[sheetName];
+    // Current stock (현재고량) lives at D3.
+    const cell = ws['D3'];
+    if (cell != null) stocks[sz.id] = Number(cell.v);
+    // Usage history: find the 사용일자 column (수량 is the next column over).
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: false });
+    let dateCol = -1, headerIdx = -1;
+    for (let i = 0; i < Math.min(rows.length, 12); i++) {
+      const c = (rows[i] || []).findIndex(v => typeof v === 'string' && v.replace(/\s/g, '').includes('사용일자'));
+      if (c >= 0) { dateCol = c; headerIdx = i; break; }
     }
+    if (dateCol < 0) continue;
+    const qtyCol = dateCol + 1;
+    const monthly = {};
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const d = rows[i]?.[dateCol], q = rows[i]?.[qtyCol];
+      if (!(d instanceof Date) || typeof q !== 'number') continue;
+      if (d > now) continue; // skip future-dated typo rows
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthly[ym] = (monthly[ym] || 0) + q;
+    }
+    usage[sz.id] = monthly;
   }
-  return result;
+  return { stocks, usage };
 }
 
 // Parse a Bi-Jet 관리대장 workbook → { [productId]: { 'YYYY-MM': totalQty } }.
@@ -192,12 +229,16 @@ function UploadSection({ onUpload }) {
     if (!UPLOAD_PRODUCTS.some(p => files[p.id])) { setMsg('파일을 먼저 선택해주세요.'); return; }
     setLoading(true); setMsg('');
     try {
-      const results = {};
+      const stockResults = {}, usageResults = {};
       for (const prod of UPLOAD_PRODUCTS) {
-        if (files[prod.id]) results[prod.id] = await parseExcelStocks(files[prod.id], prod);
+        if (files[prod.id]) {
+          const { stocks, usage } = await parseBandFile(files[prod.id], prod);
+          stockResults[prod.id] = stocks;
+          usageResults[prod.id] = usage;
+        }
       }
-      onUpload(results);
-      setMsg('✅ 재고 자동 업데이트 완료 (전산 + 오차 적용)');
+      onUpload(stockResults, usageResults);
+      setMsg('✅ 재고 + 최근 3개월 사용량 자동 업데이트 완료');
     } catch (e) {
       setMsg('❌ 파일 읽기 오류: ' + e.message);
     }
@@ -207,7 +248,7 @@ function UploadSection({ onUpload }) {
   return (
     <div className={styles.uploadBox}>
       <h2 className={styles.uploadTitle}>엑셀 파일 업로드</h2>
-      <p className={styles.uploadDesc}>업로드하면 전산재고 + 오차값으로 창고재고를 자동 계산합니다.</p>
+      <p className={styles.uploadDesc}>업로드하면 전산재고 + 오차값으로 창고재고를, 사용내역에서 당월 제외 최근 3개월 사용량을 자동 계산합니다.</p>
       <div className={styles.uploadRow}>
         {UPLOAD_PRODUCTS.map(prod => (
           <label key={prod.id} className={styles.fileLabel}>
@@ -357,18 +398,19 @@ function UsageTab({ vendor, usage, onUpload }) {
 }
 
 // ─── ProductTable ─────────────────────────────────────────────────────────────
-function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChange, onAdjust, onResetAdj }) {
-  const monthKeys = product.sizes[0]?.monthly ? Object.keys(product.sizes[0].monthly) : [];
+function ProductTable({ product, stocks, jeonsan, ocha, adjustments, usage, monthKeys, onStockChange, onAdjust, onResetAdj }) {
   const rows = product.sizes.map(sz => {
     const stock = stocks[sz.id] ?? sz.default_stock;
-    const { shortage, packs } = calcOrder(sz.avg_monthly, stock);
+    const { avg, complete, vals } = windowAvg(usage?.[sz.id], monthKeys, sz.avg_monthly);
+    const { shortage, packs } = calcOrder(avg, stock);
     const adjDelta = adjustments[sz.id] || 0;
     const finalPacks = Math.max(0, packs + adjDelta);
     const finalQty = finalPacks * PACK_SIZE;
     const jsVal = jeonsan[sz.id];
     const ochaVal = ocha[sz.id] ?? 0;
-    return { ...sz, stock, shortage, basePacks: packs, finalPacks, finalQty, jeonsan: jsVal, ocha: ochaVal };
+    return { ...sz, stock, shortage, basePacks: packs, finalPacks, finalQty, jeonsan: jsVal, ocha: ochaVal, avg, complete, monthVals: vals };
   });
+  const anyIncomplete = rows.some(r => !r.complete);
   const totalPacks = rows.reduce((s, r) => s + r.finalPacks, 0);
   const totalBoxes = Math.floor(totalPacks / 2);
   const isOdd = totalPacks > 0 && totalPacks % 2 !== 0;
@@ -407,9 +449,9 @@ function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChan
                       </span>
                     </>) : <span className={styles.noData}>—</span>}
                   </td>
-                  <td className={styles.num}>{row.avg_monthly}</td>
-                  <td className={styles.num}>{Math.ceil(row.avg_monthly)}</td>
-                  <td className={styles.monthCell}>{monthKeys.map(k => row.monthly[k]).join(' / ')}</td>
+                  <td className={styles.num}>{row.avg}</td>
+                  <td className={styles.num}>{Math.ceil(row.avg)}</td>
+                  <td className={styles.monthCell}>{row.monthVals.map(v => v == null ? '—' : v).join(' / ')}</td>
                   <td className={`${styles.num} ${row.shortage > 0 ? styles.red : styles.greenTxt}`}>
                     {row.shortage > 0 ? `+${row.shortage}` : '충분'}
                   </td>
@@ -453,6 +495,11 @@ function ProductTable({ product, stocks, jeonsan, ocha, adjustments, onStockChan
           </tfoot>
         </table>
       </div>
+      {anyIncomplete && (
+        <p className={styles.helperNote} style={{ padding: '8px 4px 0', fontSize: '0.82rem', color: '#c0392b' }}>
+          ⚠️ 최근 3개월({monthKeys.map(k => k.split('-')[1].replace(/^0/, '') + '월').join('·')}) 중 데이터가 없는 달이 있어 일부는 기존 평균값으로 계산했습니다. 최신 엑셀을 업로드하면 자동 갱신됩니다.
+        </p>
+      )}
       {isOdd && (
         <div className={styles.oddPanel}>
           <p className={styles.oddTitle}>⚠️ 총 <strong>{totalPacks}팩</strong> (홀수) — 완성 박스 구성 불가. 조정 방법을 선택하세요:</p>
@@ -1110,6 +1157,13 @@ export default function Home() {
   // Bi-Jet usage: { [productId]: { 'YYYY-MM': qty } }
   const [bijetUsage, setBijetUsage] = useState(defaultBijetUsage);
 
+  // Band (Mediquet/Rapband) usage history: { [productId]: { [sizeId]: { 'YYYY-MM': qty } } }
+  const [bandUsage, setBandUsage] = useState(defaultBandUsage);
+  const usageMonths = useMemo(() => getRecentMonths(3), []);
+  const effectiveAvg = useCallback((productId, sz) =>
+    windowAvg(bandUsage[productId]?.[sz.id], usageMonths, sz.avg_monthly).avg,
+    [bandUsage, usageMonths]);
+
   // Medyssey
   const [medysseyAdds, setMedysseyAdds] = useState({});
   const [medysseyCart, setMedysseyCart] = useState({});
@@ -1146,6 +1200,20 @@ export default function Home() {
         setBijetUsage(prev => {
           const next = { ...prev };
           for (const [pid, m] of Object.entries(parsed)) next[pid] = { ...next[pid], ...m };
+          return next;
+        });
+      }
+    } catch {}
+    try {
+      const bu = localStorage.getItem(LS_BAND_USAGE);
+      if (bu) {
+        const parsed = JSON.parse(bu);
+        setBandUsage(prev => {
+          const next = { ...prev };
+          for (const [pid, sizeMap] of Object.entries(parsed)) {
+            next[pid] = { ...next[pid] };
+            for (const [sid, m] of Object.entries(sizeMap)) next[pid][sid] = { ...next[pid][sid], ...m };
+          }
           return next;
         });
       }
@@ -1194,6 +1262,11 @@ export default function Home() {
     try { localStorage.setItem(LS_BIJET, JSON.stringify(bijetUsage)); } catch {}
   }, [bijetUsage, hydrated]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(LS_BAND_USAGE, JSON.stringify(bandUsage)); } catch {}
+  }, [bandUsage, hydrated]);
+
   const handleBijetUpload = useCallback((results) => {
     setBijetUsage(prev => {
       const next = { ...prev };
@@ -1226,7 +1299,7 @@ export default function Home() {
 
   const handleOchaReset = useCallback(() => setOcha(defaultOcha()), []);
 
-  const handleUpload = useCallback((results) => {
+  const handleUpload = useCallback((results, usageResults) => {
     setStocks(prev => {
       const next = { ...prev };
       for (const [pid, jsMap] of Object.entries(results)) {
@@ -1242,6 +1315,18 @@ export default function Home() {
       for (const [pid, jsMap] of Object.entries(results)) next[pid] = { ...next[pid], ...jsMap };
       return next;
     });
+    if (usageResults) {
+      setBandUsage(prev => {
+        const next = { ...prev };
+        for (const [pid, sizeMap] of Object.entries(usageResults)) {
+          next[pid] = { ...next[pid] };
+          for (const [sid, monthly] of Object.entries(sizeMap)) {
+            next[pid][sid] = { ...next[pid][sid], ...monthly };
+          }
+        }
+        return next;
+      });
+    }
     setAdjustments(defaultAdj());
   }, [ocha]);
 
@@ -1341,7 +1426,7 @@ export default function Home() {
   const calcTotalBoxes = (prod) => {
     const packs = prod.sizes.reduce((s, sz) => {
       const stock = stocks[prod.id]?.[sz.id] ?? sz.default_stock;
-      const { packs: base } = calcOrder(sz.avg_monthly, stock);
+      const { packs: base } = calcOrder(effectiveAvg(prod.id, sz), stock);
       const adj = adjustments[prod.id]?.[sz.id] || 0;
       return s + Math.max(0, base + adj);
     }, 0);
@@ -1356,7 +1441,7 @@ export default function Home() {
         if (prod.type === 'calculated') {
           for (const sz of prod.sizes) {
             const stock = stocks[prod.id]?.[sz.id] ?? sz.default_stock;
-            const { packs: base } = calcOrder(sz.avg_monthly, stock);
+            const { packs: base } = calcOrder(effectiveAvg(prod.id, sz), stock);
             const adj = adjustments[prod.id]?.[sz.id] || 0;
             const finalPacks = Math.max(0, base + adj);
             if (finalPacks > 0) items.push({ name: prod.excelName, spec: sz.excelSize, qty: finalPacks * PACK_SIZE });
@@ -1539,6 +1624,8 @@ export default function Home() {
                         jeonsan={jeonsan[prod.id]}
                         ocha={ocha[prod.id]}
                         adjustments={adjustments[prod.id]}
+                        usage={bandUsage[prod.id]}
+                        monthKeys={usageMonths}
                         onStockChange={(sid, val) => handleStockChange(prod.id, sid, val)}
                         onAdjust={(sid, delta) => handleAdjust(prod.id, sid, delta)}
                         onResetAdj={() => resetProductAdj(prod.id)}
